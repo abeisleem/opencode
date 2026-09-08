@@ -4,6 +4,7 @@ import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { onCleanup } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { useLog } from "./log"
+import { serverIdentity } from "./server"
 
 type ManagedService = {
   reconnect: (signal: AbortSignal) => Promise<{ api: OpenCodeClient; url?: string }>
@@ -43,6 +44,8 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
     })
 
     return {
+      // Freeze startup identity even if managed-service reconnect changes the transport URL.
+      server: serverIdentity(props.url ?? "http://localhost", service !== undefined),
       get api() {
         return api
       },

@@ -56,3 +56,17 @@ opencode2 --server http://localhost:4096
 ```
 
 See [Troubleshooting](/troubleshooting) for shared service diagnostics and the [API reference](/api) for server endpoints.
+
+## Saved tabs and terminal selection
+
+The TUI saves open session tabs and selected terminal panes separately for each server. Both global
+and current-directory tab scopes stay within that server's saved state.
+
+- URL identity ignores credentials, query strings, fragments, default ports, and trailing slashes. Distinct ports and paths
+  keep separate state; hostname aliases such as `localhost` and `127.0.0.1` also remain separate.
+- The managed local server uses a stable local identity, even when its URL changes. Older saved tabs and terminal
+  selections continue to work there using the existing local storage fields.
+- Explicit `--server` endpoints (including loopback URLs) and standalone servers use URL-based identities, separate from
+  managed local state. Reconnecting keeps the current TUI's startup identity. A standalone launch at a different URL has
+  separate saved state.
+- Navigation history, closed-tab reopening history, and the active session remain in-memory state.
