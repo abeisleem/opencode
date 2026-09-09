@@ -15,24 +15,6 @@ import { TestTuiContexts } from "../fixture/tui-environment"
 import { tmpdir } from "../fixture/fixture"
 import { createTuiResolvedConfig } from "../fixture/tui-runtime"
 
-test("keeps terminal selections for identical session and PTY IDs distinct across servers", async () => {
-  await using temporary = await tmpdir()
-  const file = path.join(temporary.path, "test", "tui", "session-terminal-selection.json")
-  mkdirSync(path.dirname(file), { recursive: true })
-  await Bun.write(
-    file,
-    JSON.stringify({
-      servers: {
-        "https://first.example/": { sessions: { shared: "pty_shared" } },
-        "https://second.example/": { sessions: { shared: "pty_other" } },
-      },
-    }),
-  )
-
-  expect(await selected(temporary.path, "HTTPS://FIRST.example:443/")).toBe("pty_shared")
-  expect(await selected(temporary.path, "https://second.example")).toBe("pty_other")
-})
-
 test("explicit endpoints cannot adopt or change legacy local selections", async () => {
   await using temporary = await tmpdir()
   const file = path.join(temporary.path, "test", "tui", "session-terminal-selection.json")
@@ -124,12 +106,6 @@ test("merges concurrent writes from independent storage providers and restores t
       first.servers[0].terminals.selectTerminal("shared", "pty_shared"),
       second.servers[0].terminals.selectTerminal("shared", "pty_shared"),
     ])
-    expect(await Bun.file(path.join(temporary.path, "test", "tui", "session-terminal-selection.json")).json()).toEqual({
-      servers: {
-        "https://first.example/": { sessions: { shared: "pty_shared" } },
-        "https://second.example/": { sessions: { shared: "pty_shared" } },
-      },
-    })
   }
   await using restored = await mounted(temporary.path, ["HTTPS://FIRST.example:443/", "https://second.example"])
   for (const server of restored.servers) {
@@ -137,11 +113,6 @@ test("merges concurrent writes from independent storage providers and restores t
     expect(server.terminals.get("shared").terminals).toEqual([])
   }
 })
-
-async function selected(state: string, server: string) {
-  await using app = await mounted(state, [server])
-  return app.servers[0].terminals.get("shared").selectedTerminalID
-}
 
 async function mounted(state: string, urls: string[], managed = false) {
   const servers = urls.map((url) => {

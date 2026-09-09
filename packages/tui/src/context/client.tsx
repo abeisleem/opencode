@@ -4,7 +4,6 @@ import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { onCleanup } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { useLog } from "./log"
-import { serverIdentity } from "./server"
 
 type ManagedService = {
   reconnect: (signal: AbortSignal) => Promise<{ api: OpenCodeClient; url?: string }>
@@ -62,3 +61,14 @@ export const { use: useClient, provider: ClientProvider } = createSimpleContext(
     }
   },
 })
+
+export function serverIdentity(url: string, managed = false) {
+  if (managed) return "local"
+  const value = new URL(url)
+  value.username = ""
+  value.password = ""
+  value.search = ""
+  value.hash = ""
+  value.pathname = value.pathname.replace(/\/+$/, "") || "/"
+  return value.toString()
+}
