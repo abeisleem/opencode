@@ -7,7 +7,9 @@ import type { DataValue, Diagnostic, ResolvedExecutionLimits, Result } from "../
 import { toData } from "../data.js"
 import { ToolRuntime } from "../tool-runtime.js"
 import { normalizeError } from "./errors.js"
-import { InterpreterRuntimeError } from "./model.js"
+import { createPrototypes } from "./intrinsics.js"
+import type { Host } from "./globals.js"
+import { PendingThrow } from "./model.js"
 import { PromiseRuntime } from "./promises.js"
 import { Runtime } from "./runtime.js"
 
@@ -16,6 +18,7 @@ export const executeProgram = <R>(
   prepared: ToolRuntime.Prepared<R>,
   limits: ResolvedExecutionLimits,
   hooks: ToolRuntime.ToolCallHooks<R>,
+  extraGlobals?: (host: Host<R>) => ReadonlyArray<readonly [string, unknown]>,
 ): Effect.Effect<Result, never, R> => {
   if (code.trim().length === 0) {
     return Effect.succeed({
@@ -27,7 +30,8 @@ export const executeProgram = <R>(
 
   // Allocate execution state inside suspension so reused Effects never share it.
   return Effect.suspend(() => {
-    const tools = ToolRuntime.make(prepared, limits.maxToolCalls, hooks)
+    const prototypes = createPrototypes()
+    const tools = ToolRuntime.make(prepared, prototypes, limits.maxToolCalls, hooks)
     const logs: Array<string> = []
     const logged = () => (logs.length > 0 ? { logs: [...logs] } : {})
     // Set only after copy-out so timeouts cannot report invalid values as completed.
@@ -38,8 +42,16 @@ export const executeProgram = <R>(
       (scope) =>
         Effect.gen(function* () {
           const program = parseProgram(code)
-          const promises = new PromiseRuntime<R>(scope)
-          const value = yield* new Runtime<R>(tools.execute, tools.search, tools.keys, promises, logs).run(program)
+          const promises = new PromiseRuntime<R>(scope, prototypes.Promise)
+          const value = yield* new Runtime<R>(
+            tools.execute,
+            tools.search,
+            tools.keys,
+            promises,
+            prototypes,
+            logs,
+            extraGlobals,
+          ).run(program)
           const result = toData(value, "Execution result", "result") as DataValue
           returned = { value: result, promises }
           const warnings = yield* promises.interrupt()
@@ -110,7 +122,7 @@ const parseProgram = (code: string): Program => {
   const transpiled = transpile(`async function __codemode__() {\n${code}\n}`)
 
   if (transpiled.error !== undefined) {
-    throw new InterpreterRuntimeError(`Failed to parse TypeScript: ${transpiled.error}`, undefined, "ParseError")
+    throw new PendingThrow("SyntaxError", `Failed to parse TypeScript: ${transpiled.error}`, undefined, "ParseError")
   }
 
   const bodyStart = transpiled.outputText.indexOf("{") + 1

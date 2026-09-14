@@ -380,11 +380,37 @@ describe("Session.create", () => {
 
       yield* session.prompt({ sessionID: created.id, text: "Fork context", resume: false })
       yield* SessionInbox.promote(db, bus, created.id, "steer")
-      const forked = yield* session.fork({ sessionID: created.id, boundary: { type: "through" } })
+      const forked = yield* session.fork({ sessionID: created.id })
       expect(forked.metadata).toEqual(metadata)
 
       // Absent stays absent: no empty-object normalization.
       expect((yield* session.create({ location })).metadata).toBeUndefined()
+    }),
+  )
+
+  it.effect("stores permission rules, inherits them through children and forks, and replaces them", () =>
+    Effect.gen(function* () {
+      const session = yield* Session.Service
+      const bus = yield* Bus.Service
+      const { db } = yield* Database.Service
+      const permissions = [{ action: "edit", resource: "/original/**", effect: "deny" as const }]
+
+      const created = yield* session.create({ location, permissions })
+      expect(created.permissions).toEqual(permissions)
+      expect((yield* session.create({ parentID: created.id })).permissions).toEqual(permissions)
+      expect((yield* session.create({ parentID: created.id, permissions: [] })).permissions).toEqual([])
+
+      yield* session.prompt({ sessionID: created.id, text: "Fork context", resume: false })
+      yield* SessionInbox.promote(db, bus, created.id, "steer")
+      const forked = yield* session.fork({ sessionID: created.id })
+      expect(forked.permissions).toEqual(permissions)
+
+      const replaced = [{ action: "shell", resource: "*", effect: "ask" as const }]
+      yield* session.setPermissions({ sessionID: created.id, permissions: replaced })
+      expect((yield* session.get(created.id)).permissions).toEqual(replaced)
+      expect(
+        yield* session.setPermissions({ sessionID: Session.ID.create(), permissions: replaced }).pipe(Effect.flip),
+      ).toBeInstanceOf(Session.NotFoundError)
     }),
   )
 
@@ -515,7 +541,7 @@ describe("Session.create", () => {
       yield* session.synthetic({ sessionID: parent.id, text: "parent note", resume: false })
       yield* SessionInbox.promote(db, bus, parent.id, "steer")
 
-      const forked = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const forked = yield* session.fork({ sessionID: parent.id })
       const parentContext = yield* session.context(parent.id)
       const forkContext = yield* session.context(forked.id)
       const history = Array.from(yield* Stream.runCollect(logEvents(session, forked.id)))
@@ -570,7 +596,7 @@ describe("Session.create", () => {
       yield* session.prompt({ sessionID: parent.id, text: "First", resume: false })
       yield* SessionInbox.promote(db, bus, parent.id, "steer")
 
-      const forked = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const forked = yield* session.fork({ sessionID: parent.id })
       const row = yield* db.select().from(SessionTable).where(eq(SessionTable.id, forked.id)).get().pipe(Effect.orDie)
 
       expect(forked.title).toBeUndefined()
@@ -588,7 +614,7 @@ describe("Session.create", () => {
       yield* SessionInbox.promote(db, bus, parent.id, "steer")
       yield* session.synthetic({ sessionID: parent.id, text: "Second", resume: false })
       yield* SessionInbox.promote(db, bus, parent.id, "steer")
-      const forked = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const forked = yield* session.fork({ sessionID: parent.id })
       const original = (yield* session.context(forked.id)).map((message) => message.id)
       const recorded = yield* db
         .select()
@@ -631,7 +657,7 @@ describe("Session.create", () => {
         { discard: true },
       )
 
-      const forked = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const forked = yield* session.fork({ sessionID: parent.id })
       const inheritedList = yield* entries.list(forked.id)
       const inheritedValues = yield* entries.load(forked.id).pipe(Effect.flatMap(Instructions.read))
 
@@ -704,7 +730,7 @@ describe("Session.create", () => {
         executed: true,
       })
 
-      const forked = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const forked = yield* session.fork({ sessionID: parent.id })
 
       expect(yield* session.context(parent.id)).toMatchObject([
         Expected.user("Run both tools"),
@@ -734,7 +760,7 @@ describe("Session.create", () => {
       })
       yield* bus.publish(SessionEvent.Shell.Started, { sessionID: parent.id, shell })
 
-      const running = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const running = yield* session.fork({ sessionID: parent.id })
 
       expect(yield* session.context(parent.id)).toMatchObject([
         Expected.user("Run a shell"),
@@ -747,7 +773,7 @@ describe("Session.create", () => {
         shell: { ...shell, status: "exited", exit: 0, time: { started: 0, completed: 1 } },
         output: { output: "complete", cursor: 8, size: 8, truncated: false },
       })
-      const completed = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const completed = yield* session.fork({ sessionID: parent.id })
 
       expect(yield* session.context(running.id)).toMatchObject([Expected.user("Run a shell")])
       expect(yield* session.context(completed.id)).toMatchObject([
@@ -763,7 +789,7 @@ describe("Session.create", () => {
       const parent = yield* session.create({ location })
 
       expect(
-        yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } }).pipe(Effect.flip),
+        yield* session.fork({ sessionID: parent.id }).pipe(Effect.flip),
       ).toMatchObject({ _tag: "Session.ForkEmptyError", sessionID: parent.id })
     }),
   )
@@ -804,13 +830,13 @@ describe("Session.create", () => {
 
       const forked = yield* session.fork({
         sessionID: parent.id,
-        boundary: { type: "before", messageID: second.id },
+        before: second.id,
       })
       const beforeFirst = yield* session.fork({
         sessionID: parent.id,
-        boundary: { type: "before", messageID: first.id },
+        before: first.id,
       })
-      const complete = yield* session.fork({ sessionID: parent.id, boundary: { type: "through" } })
+      const complete = yield* session.fork({ sessionID: parent.id })
 
       const context = yield* session.context(forked.id)
       const history = Array.from(yield* Stream.runCollect(logEvents(session, forked.id)))
@@ -1330,7 +1356,12 @@ describe("SessionTransfer", () => {
       const transfer = yield* SessionTransfer.Service
       const bus = yield* Bus.Service
       const { db } = yield* Database.Service
-      const template = yield* session.create({ location, title: "Exported", metadata: { channel: "C123" } })
+      const template = yield* session.create({
+        location,
+        title: "Exported",
+        metadata: { channel: "C123" },
+        permissions: [{ action: "edit", resource: "*", effect: "deny" }],
+      })
       const sessionID = Session.ID.create()
       const sourceMessageID = SessionMessage.ID.create()
       const errorMessageID = SessionMessage.ID.create()
@@ -1376,7 +1407,13 @@ describe("SessionTransfer", () => {
       })
       const messages = yield* session.messages({ sessionID, order: "asc" })
 
-      expect(imported).toMatchObject({ id: sessionID, title: "Exported", location, metadata: { channel: "C123" } })
+      expect(imported).toMatchObject({
+        id: sessionID,
+        title: "Exported",
+        location,
+        metadata: { channel: "C123" },
+        permissions: [{ action: "edit", resource: "*", effect: "deny" }],
+      })
       expect(imported.time).toMatchObject({
         updated: DateTime.makeUnsafe(1_000),
         idle: DateTime.makeUnsafe(200),

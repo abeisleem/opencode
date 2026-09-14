@@ -147,7 +147,7 @@ async function mounted(state: string, urls: string[], managed = false) {
     <TestTuiContexts paths={{ state }}>
       <TuiAppProvider value={{ name: "test", version: "test", channel: "test" }}>
         <StorageProvider>
-          <ConfigProvider config={createTuiResolvedConfig({ session: { terminal: true } })}>
+          <ConfigProvider config={createTuiResolvedConfig()}>
             {servers.map((server) => (
               <ClientProvider
                 api={server.api}
