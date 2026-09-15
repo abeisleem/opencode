@@ -297,7 +297,7 @@ function mockHandlers(config: MockServerConfig, state: { cursors: Map<string, st
             })),
           ]),
         worktreeCreate: (ctx) => {
-          const input = record(ctx.payload) ? ctx.payload : {}
+          const input = ctx.payload
           return Effect.succeed({
             directory: `${typeof input.directory === "string" ? input.directory : config.directory}/${
               typeof input.name === "string" ? input.name : "copy"
@@ -437,7 +437,7 @@ function mockHandlers(config: MockServerConfig, state: { cursors: Map<string, st
               data: {
                 id: typeof body.id === "string" ? body.id : `inb_mock_${Date.now()}`,
                 sessionID: ctx.params.sessionID,
-                timeCreated: Date.now(),
+                time: { created: Date.now() },
                 type: "user",
                 payload: {
                   text: typeof body.text === "string" ? body.text : "",

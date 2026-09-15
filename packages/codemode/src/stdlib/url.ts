@@ -1,19 +1,10 @@
 import { Effect } from "effect"
-import { toProgram, ToolRuntimeError } from "../data.js"
-import type { Prototypes } from "../interpreter/intrinsics.js"
 import { constructor, fn, type Method, methods, prototypeFrom, receiver, requiresNew } from "../interpreter/native.js"
 import { PendingThrow, typeError, uriError } from "../interpreter/model.js"
-import {
-  defineAccessor,
-  entries,
-  isWrapper,
-  ProgramArray,
-  ProgramObject,
-  ProgramURL,
-  ProgramURLSearchParams,
-} from "../interpreter/objects.js"
+import { defineAccessor, entries, isWrapper, Arr, Obj, URLObj, URLSearchParamsObj } from "../interpreter/objects.js"
 import { isRuntimeReference } from "../interpreter/references.js"
-import { applyCollectionCallback, preserveConsumerError, type Runner } from "../interpreter/runner.js"
+import { applyCollectionCallback, preserveConsumerError } from "../interpreter/callback.js"
+import type { Interpreter } from "../interpreter/interpreter.js"
 import { coerceToString } from "./value.js"
 
 const urlProperties = [
@@ -30,9 +21,6 @@ const urlProperties = [
   "hash",
 ] as const
 
-export const uriArgument = (protos: Prototypes, value: unknown, label: string): string =>
-  coerceToString(toProgram(protos, value, label))
-
 type UriFunction = "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent"
 
 const uriFunctions: Record<UriFunction, (value: string) => string> = {
@@ -42,9 +30,9 @@ const uriFunctions: Record<UriFunction, (value: string) => string> = {
   decodeURIComponent,
 }
 
-export const uriGlobal = <R>(runner: Runner<R>, name: UriFunction) =>
-  fn<R>(runner.prototypes, name, 1, (_, args) => {
-    const value = uriArgument(runner.prototypes, args[0], `${name} input`)
+export const uriGlobal = <R>(ctx: Interpreter<R>, name: UriFunction) =>
+  fn<R>(ctx.builtins, name, 1, (_, args) => {
+    const value = coerceToString(args[0])
     try {
       return uriFunctions[name](value)
     } catch (error) {
@@ -52,25 +40,24 @@ export const uriGlobal = <R>(runner: Runner<R>, name: UriFunction) =>
     }
   })
 
-const urlArgument = (protos: Prototypes, value: unknown, label: string): string =>
-  value instanceof ProgramURL ? value.url.href : uriArgument(protos, value, label)
+const urlArgument = (value: unknown): string => (value instanceof URLObj ? value.url.href : coerceToString(value))
 
-export const urlGlobal = <R>(runner: Runner<R>) => {
-  const protos = runner.prototypes
-  const proto = protos.URL
-  const construct = (args: Array<unknown>, into: ProgramObject): ProgramURL => {
+export const urlGlobal = <R>(ctx: Interpreter<R>) => {
+  const builtins = ctx.builtins
+  const proto = builtins.URL
+  const construct = (args: Array<unknown>, into: Obj): URLObj => {
     if (args.length === 0) {
       throw typeError("new URL(...) requires a URL string and an optional base URL.")
     }
-    const input = urlArgument(protos, args[0], "new URL input")
-    const base = args[1] === undefined ? undefined : urlArgument(protos, args[1], "new URL base")
+    const input = urlArgument(args[0])
+    const base = args[1] === undefined ? undefined : urlArgument(args[1])
     try {
-      return new ProgramURL(into, protos.URLSearchParams, new URL(input, base))
+      return new URLObj(into, builtins.URLSearchParams, new URL(input, base))
     } catch {
       throw typeError(`new URL(...) received an invalid URL${base === undefined ? "" : " or base URL"}.`)
     }
   }
-  const url = constructor<R>(protos, proto, {
+  const url = constructor<R>(builtins, proto, {
     name: "URL",
     length: 1,
     call: requiresNew("URL"),
@@ -81,19 +68,19 @@ export const urlGlobal = <R>(runner: Runner<R>) => {
     1,
     (_, args) => {
       if (args.length === 0) throw typeError(`URL.${name} requires a URL argument.`)
-      const input = urlArgument(protos, args[0], `URL.${name} input`)
-      const base = args[1] === undefined ? undefined : urlArgument(protos, args[1], `URL.${name} base`)
+      const input = urlArgument(args[0])
+      const base = args[1] === undefined ? undefined : urlArgument(args[1])
       try {
         const parsed = new URL(input, base)
-        return name === "canParse" ? true : new ProgramURL(proto, protos.URLSearchParams, parsed)
+        return name === "canParse" ? true : new URLObj(proto, builtins.URLSearchParams, parsed)
       } catch {
         return name === "canParse" ? false : null
       }
     },
   ]
-  methods(protos, url, [parse("canParse"), parse("parse")])
+  methods(builtins, url, [parse("canParse"), parse("parse")])
 
-  const self = (thisValue: unknown, name: string) => receiver(ProgramURL, thisValue, `URL.prototype.${name}`)
+  const self = (thisValue: unknown, name: string) => receiver(URLObj, thisValue, `URL.prototype.${name}`)
   for (const name of urlProperties) {
     defineAccessor(
       proto,
@@ -104,25 +91,25 @@ export const urlGlobal = <R>(runner: Runner<R>) => {
         : (thisValue, value) => {
             const target = self(thisValue, name)
             try {
-              ;(target.url as unknown as Record<string, string>)[name] = uriArgument(protos, value, `URL.${name} value`)
+              ;(target.url as unknown as Record<string, string>)[name] = coerceToString(value)
             } catch (error) {
-              if (error instanceof PendingThrow || error instanceof ToolRuntimeError) throw error
+              if (error instanceof PendingThrow) throw error
               throw typeError(`URL.${name} received an invalid value.`)
             }
           },
     )
   }
   defineAccessor(proto, "searchParams", (thisValue) => self(thisValue, "searchParams").searchParams)
-  methods(protos, proto, [
+  methods(builtins, proto, [
     ["toString", 0, (thisValue) => self(thisValue, "toString").url.href],
     ["toJSON", 0, (thisValue) => self(thisValue, "toJSON").url.href],
   ])
   return url
 }
 
-const readPair = <R>(runner: Runner<R>, value: unknown): Effect.Effect<Array<string>, unknown, R> =>
+const readPair = <R>(ctx: Interpreter<R>, value: unknown): Effect.Effect<Array<string>, unknown, R> =>
   Effect.gen(function* () {
-    const cursor = yield* runner.syncIterator(value)
+    const cursor = yield* ctx.iterate(value)
     if (cursor === undefined) {
       throw typeError("new URLSearchParams(...) expects iterable [name, value] pairs.")
     }
@@ -133,26 +120,26 @@ const readPair = <R>(runner: Runner<R>, value: unknown): Effect.Effect<Array<str
       items.push(
         yield* preserveConsumerError(
           cursor,
-          Effect.sync(() => uriArgument(runner.prototypes, step.value, "URLSearchParams pair value")),
+          Effect.sync(() => coerceToString(step.value)),
         ),
       )
     }
   })
 
 const constructURLSearchParams = <R>(
-  runner: Runner<R>,
+  ctx: Interpreter<R>,
   init: unknown,
-  proto: ProgramObject,
-): Effect.Effect<ProgramURLSearchParams, unknown, R> => {
-  const wrap = (params: URLSearchParams) => new ProgramURLSearchParams(proto, params)
+  proto: Obj,
+): Effect.Effect<URLSearchParamsObj, unknown, R> => {
+  const wrap = (params: URLSearchParams) => new URLSearchParamsObj(proto, params)
   if (init === undefined) return Effect.succeed(wrap(new URLSearchParams()))
-  if (init instanceof ProgramURLSearchParams) return Effect.succeed(wrap(new URLSearchParams(init.params)))
+  if (init instanceof URLSearchParamsObj) return Effect.succeed(wrap(new URLSearchParams(init.params)))
   if (typeof init === "string") return Effect.succeed(wrap(new URLSearchParams(init)))
   if (init === null || typeof init === "number" || typeof init === "boolean") {
     return Effect.succeed(wrap(new URLSearchParams(coerceToString(init))))
   }
   return Effect.gen(function* () {
-    const cursor = yield* runner.syncIterator(init)
+    const cursor = yield* ctx.iterate(init)
     if (cursor !== undefined) {
       const pairs: Array<Array<string>> = []
       while (true) {
@@ -163,14 +150,14 @@ const constructURLSearchParams = <R>(
           }
           return wrap(new URLSearchParams(pairs.map((entry): [string, string] => [entry[0] ?? "", entry[1] ?? ""])))
         }
-        pairs.push(yield* preserveConsumerError(cursor, readPair(runner, step.value)))
+        pairs.push(yield* preserveConsumerError(cursor, readPair(ctx, step.value)))
       }
     }
     if (isRuntimeReference(init)) {
       throw typeError("new URLSearchParams(...) expects a query string, data object, or synchronous iterable pairs.")
     }
     if (isWrapper(init)) return wrap(new URLSearchParams())
-    if (!(init instanceof ProgramObject)) {
+    if (!(init instanceof Obj)) {
       throw typeError(
         "new URLSearchParams(...) expects a query string, data object, iterable pairs, or URLSearchParams.",
       )
@@ -181,32 +168,31 @@ const constructURLSearchParams = <R>(
   })
 }
 
-export const urlSearchParamsGlobal = <R>(runner: Runner<R>) => {
-  const protos = runner.prototypes
-  const proto = protos.URLSearchParams
-  const searchParams = constructor<R>(protos, proto, {
+export const urlSearchParamsGlobal = <R>(ctx: Interpreter<R>) => {
+  const builtins = ctx.builtins
+  const proto = builtins.URLSearchParams
+  const searchParams = constructor<R>(builtins, proto, {
     name: "URLSearchParams",
     call: requiresNew("URLSearchParams"),
-    construct: (args, newTarget) => constructURLSearchParams(runner, args[0], prototypeFrom(newTarget, proto)),
+    construct: (args, newTarget) => constructURLSearchParams(ctx, args[0], prototypeFrom(newTarget, proto)),
   })
   const self = (thisValue: unknown, name: string) =>
-    receiver(ProgramURLSearchParams, thisValue, `URLSearchParams.prototype.${name}`)
-  const wrap = (items: Array<unknown>) => new ProgramArray(protos.Array, items)
-  const arg = (name: string, args: Array<unknown>, index: number): string =>
-    uriArgument(protos, args[index], `URLSearchParams.${name} argument ${index + 1}`)
+    receiver(URLSearchParamsObj, thisValue, `URLSearchParams.prototype.${name}`)
+  const wrap = (items: Array<unknown>) => new Arr(builtins.Array, items)
+  const arg = (args: Array<unknown>, index: number): string => coerceToString(args[index])
   const requireArgs = (name: string, args: Array<unknown>, count: number): void => {
     if (args.length < count) {
       throw typeError(`URLSearchParams.${name} requires ${count} argument${count === 1 ? "" : "s"}.`)
     }
   }
   defineAccessor(proto, "size", (thisValue) => self(thisValue, "size").params.size)
-  methods(protos, proto, [
+  methods(builtins, proto, [
     [
       "append",
       2,
       (thisValue, args) => {
         requireArgs("append", args, 2)
-        self(thisValue, "append").params.append(arg("append", args, 0), arg("append", args, 1))
+        self(thisValue, "append").params.append(arg(args, 0), arg(args, 1))
         return undefined
       },
     ],
@@ -216,8 +202,8 @@ export const urlSearchParamsGlobal = <R>(runner: Runner<R>) => {
       (thisValue, args) => {
         requireArgs("delete", args, 1)
         const params = self(thisValue, "delete").params
-        if (args[1] !== undefined) params.delete(arg("delete", args, 0), arg("delete", args, 1))
-        else params.delete(arg("delete", args, 0))
+        if (args[1] !== undefined) params.delete(arg(args, 0), arg(args, 1))
+        else params.delete(arg(args, 0))
         return undefined
       },
     ],
@@ -226,7 +212,7 @@ export const urlSearchParamsGlobal = <R>(runner: Runner<R>) => {
       1,
       (thisValue, args) => {
         requireArgs("get", args, 1)
-        return self(thisValue, "get").params.get(arg("get", args, 0))
+        return self(thisValue, "get").params.get(arg(args, 0))
       },
     ],
     [
@@ -234,7 +220,7 @@ export const urlSearchParamsGlobal = <R>(runner: Runner<R>) => {
       1,
       (thisValue, args) => {
         requireArgs("getAll", args, 1)
-        return wrap(self(thisValue, "getAll").params.getAll(arg("getAll", args, 0)))
+        return wrap(self(thisValue, "getAll").params.getAll(arg(args, 0)))
       },
     ],
     [
@@ -243,9 +229,7 @@ export const urlSearchParamsGlobal = <R>(runner: Runner<R>) => {
       (thisValue, args) => {
         requireArgs("has", args, 1)
         const params = self(thisValue, "has").params
-        return args[1] !== undefined
-          ? params.has(arg("has", args, 0), arg("has", args, 1))
-          : params.has(arg("has", args, 0))
+        return args[1] !== undefined ? params.has(arg(args, 0), arg(args, 1)) : params.has(arg(args, 0))
       },
     ],
     [
@@ -253,7 +237,7 @@ export const urlSearchParamsGlobal = <R>(runner: Runner<R>) => {
       2,
       (thisValue, args) => {
         requireArgs("set", args, 2)
-        self(thisValue, "set").params.set(arg("set", args, 0), arg("set", args, 1))
+        self(thisValue, "set").params.set(arg(args, 0), arg(args, 1))
         return undefined
       },
     ],
@@ -280,7 +264,7 @@ export const urlSearchParamsGlobal = <R>(runner: Runner<R>) => {
       (thisValue, args) => {
         requireArgs("forEach", args, 1)
         const target = self(thisValue, "forEach")
-        const apply = applyCollectionCallback(runner, args[0], "URLSearchParams.forEach")
+        const apply = applyCollectionCallback(ctx, args[0], "URLSearchParams.forEach")
         return Effect.gen(function* () {
           for (const [key, value] of Array.from(target.params.entries())) yield* apply([value, key, target])
           return undefined

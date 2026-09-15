@@ -16,10 +16,10 @@ import type { SessionInbox } from "@opencode/schema/session-inbox"
 import type { PromptInput } from "@opencode/schema/prompt-input"
 import type { AgentAttachment } from "@opencode/schema/prompt"
 import type { Skill } from "@opencode/schema/skill"
-import type { Event } from "@opencode/schema/event"
 import type { FileDiff } from "@opencode/schema/file-diff"
 import type { InstructionEntry } from "@opencode/schema/instruction-entry"
 import type { Schema } from "effect"
+import type { Event } from "@opencode/schema/event"
 import type { EventLog } from "@opencode/schema/event-log"
 import type { Shell } from "@opencode/schema/shell"
 import type { Provider } from "@opencode/schema/provider"
@@ -261,7 +261,7 @@ export type SessionPromptOperation<E = never> = (input: SessionPromptInput) => E
 
 export type SessionCommandInput = {
   readonly sessionID: Session.ID
-  readonly command: string
+  readonly name: string
   readonly text: string
   readonly files?: ReadonlyArray<PromptInput.FileAttachment> | undefined
   readonly agents?: ReadonlyArray<AgentAttachment> | undefined
@@ -273,8 +273,7 @@ export type SessionCommandOperation<E = never> = (input: SessionCommandInput) =>
 
 export type SessionSkillInput = {
   readonly sessionID: Session.ID
-  readonly id?: SessionMessage.ID | undefined
-  readonly skill: Skill.ID
+  readonly id: Skill.ID
   readonly resume?: boolean | undefined
 }
 export type SessionSkillOutput = void
@@ -296,7 +295,7 @@ export type SessionSyntheticOperation<E = never> = (
 
 export type SessionShellInput = {
   readonly sessionID: Session.ID
-  readonly id?: Event.ID | undefined
+  readonly id?: SessionMessage.ID | undefined
   readonly command: string
 }
 export type SessionShellOutput = void
@@ -1308,7 +1307,7 @@ export type SessionLogOutput =
   | EventLog.Synced
 export type SessionLogOperation<E = never> = (input: SessionLogInput) => Stream.Stream<SessionLogOutput, E>
 
-export type SessionInterruptInput = { readonly sessionID: Session.ID; readonly continue?: boolean | undefined }
+export type SessionInterruptInput = { readonly sessionID: Session.ID; readonly resume?: boolean | undefined }
 export type SessionInterruptOutput = { readonly interrupted: boolean }
 export type SessionInterruptOperation<E = never> = (
   input: SessionInterruptInput,
@@ -1320,9 +1319,11 @@ export type SessionBackgroundOperation<E = never> = (
   input: SessionBackgroundInput,
 ) => Effect.Effect<SessionBackgroundOutput, E>
 
-export type SessionMessageInput = { readonly sessionID: Session.ID; readonly messageID: SessionMessage.ID }
-export type SessionMessageOutput = SessionMessage.Info
-export type SessionMessageOperation<E = never> = (input: SessionMessageInput) => Effect.Effect<SessionMessageOutput, E>
+export type SessionMessageGetInput = { readonly sessionID: Session.ID; readonly messageID: SessionMessage.ID }
+export type SessionMessageGetOutput = SessionMessage.Info
+export type SessionMessageGetOperation<E = never> = (
+  input: SessionMessageGetInput,
+) => Effect.Effect<SessionMessageGetOutput, E>
 
 export type SessionEnvironmentInput = {
   readonly sessionID: Session.ID
@@ -1333,7 +1334,7 @@ export type SessionEnvironmentOperation<E = never> = (
   input: SessionEnvironmentInput,
 ) => Effect.Effect<SessionEnvironmentOutput, E>
 
-export type SessionViewInput = { readonly sessionID: Session.ID; readonly idle: number }
+export type SessionViewInput = { readonly sessionID: Session.ID; readonly idle: DateTime.Utc }
 export type SessionViewOutput = void
 export type SessionViewOperation<E = never> = (input: SessionViewInput) => Effect.Effect<SessionViewOutput, E>
 
@@ -1382,7 +1383,7 @@ export interface SessionApi<E = never> {
   readonly log: SessionLogOperation<E>
   readonly interrupt: SessionInterruptOperation<E>
   readonly background: SessionBackgroundOperation<E>
-  readonly message: SessionMessageOperation<E>
+  readonly message: { readonly get: SessionMessageGetOperation<E> }
   readonly environment: SessionEnvironmentOperation<E>
   readonly view: SessionViewOperation<E>
 }
@@ -2165,33 +2166,32 @@ export interface ReferenceApi<E = never> {
   readonly list: ReferenceListOperation<E>
 }
 
-export type WorktreeListInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
+export type WorktreeListInput = { readonly projectID: Project.ID }
 export type WorktreeListOutput = Worktree.List
-export type WorktreeListOperation<E = never> = (input?: WorktreeListInput) => Effect.Effect<WorktreeListOutput, E>
+export type WorktreeListOperation<E = never> = (input: WorktreeListInput) => Effect.Effect<WorktreeListOutput, E>
 
 export type WorktreeCreateInput = {
-  readonly location?: { readonly directory?: string | undefined } | undefined
-  readonly strategy?: Worktree.StrategyID | undefined
+  readonly projectID: Project.ID
   readonly from?: AbsolutePath | undefined
   readonly branch?: string | undefined
   readonly directory?: AbsolutePath | undefined
   readonly name?: string | undefined
 }
 export type WorktreeCreateOutput = Worktree.Info
-export type WorktreeCreateOperation<E = never> = (input?: WorktreeCreateInput) => Effect.Effect<WorktreeCreateOutput, E>
+export type WorktreeCreateOperation<E = never> = (input: WorktreeCreateInput) => Effect.Effect<WorktreeCreateOutput, E>
 
 export type WorktreeRemoveInput = {
-  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly projectID: Project.ID
   readonly directory: AbsolutePath
   readonly force: boolean
 }
 export type WorktreeRemoveOutput = void
 export type WorktreeRemoveOperation<E = never> = (input: WorktreeRemoveInput) => Effect.Effect<WorktreeRemoveOutput, E>
 
-export type WorktreeRefreshInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
+export type WorktreeRefreshInput = { readonly projectID: Project.ID }
 export type WorktreeRefreshOutput = void
 export type WorktreeRefreshOperation<E = never> = (
-  input?: WorktreeRefreshInput,
+  input: WorktreeRefreshInput,
 ) => Effect.Effect<WorktreeRefreshOutput, E>
 
 export interface WorktreeApi<E = never> {

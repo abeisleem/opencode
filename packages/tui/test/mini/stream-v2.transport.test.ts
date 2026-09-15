@@ -91,7 +91,7 @@ function promptAdmission(input: Parameters<OpenCodeClient["session"]["prompt"]>[
       metadata: input.metadata,
     },
     delivery: input.delivery ?? ("steer" as const),
-    timeCreated: 2,
+    time: { created: 2 },
   }
 }
 
@@ -192,7 +192,7 @@ function sdk(input: {
   spyOn(client.session, "active").mockImplementation(() => ok(input.active?.() ?? {}))
   spyOn(client.session.inbox, "list").mockImplementation((request) => ok(input.pending?.[request.sessionID] ?? []))
   spyOn(client.session, "wait").mockImplementation(() => input.wait?.() ?? ok(undefined))
-  spyOn(client.session, "message").mockImplementation((request) => {
+  spyOn(client.session.message, "get").mockImplementation((request) => {
     const message = input.messages?.[request.sessionID]?.find((item) => item.id === request.messageID)
     return message ? (ok(message) as never) : Promise.reject(new Error(`message not found: ${request.messageID}`))
   })
@@ -327,7 +327,7 @@ describe("V2 mini transport", () => {
       type: "user",
       payload: { text: "look [Image 1]", files },
       delivery: "steer",
-      timeCreated: 1,
+      time: { created: 1 },
     } satisfies SessionInboxInfo
     const prompt = spyOn(client.session, "prompt").mockImplementation(() => {
       requested.resolve()
@@ -843,7 +843,7 @@ describe("V2 mini transport", () => {
     })
     const releaseSource = defer<void>()
     let sourceLookups = 0
-    spyOn(client.session, "message").mockImplementation(async () => {
+    spyOn(client.session.message, "get").mockImplementation(async () => {
       sourceLookups++
       if (sourceLookups === 1) throw new Error("source temporarily unavailable")
       await releaseSource.promise
@@ -873,7 +873,7 @@ describe("V2 mini transport", () => {
     )
       await Bun.sleep(0)
 
-    expect(client.session.message).toHaveBeenCalledWith(
+    expect(client.session.message.get).toHaveBeenCalledWith(
       { sessionID: "ses_child", messageID: "msg_child_source" },
       { signal: expect.any(AbortSignal) },
     )
@@ -1079,7 +1079,7 @@ describe("V2 mini transport", () => {
           {
             id: "msg_queued",
             sessionID: "ses_1",
-            timeCreated: 1,
+            time: { created: 1 },
             type: "user",
             payload: {
               text: "follow up",
@@ -1094,7 +1094,7 @@ describe("V2 mini transport", () => {
           {
             id: "msg_cancelled",
             sessionID: "ses_1",
-            timeCreated: 2,
+            time: { created: 2 },
             type: "user",
             payload: { text: "remove me", files: [image] },
             delivery,
@@ -1939,7 +1939,7 @@ describe("V2 mini transport", () => {
     await transport.interruptActiveTurn()
 
     expect(prompt).toHaveBeenCalled()
-    expect(interrupt).toHaveBeenCalledWith({ sessionID: "ses_1", continue: true })
+    expect(interrupt).toHaveBeenCalledWith({ sessionID: "ses_1", resume: true })
     expect(firstPrompt).not.toHaveBeenCalled()
     expect(firstInterrupt).not.toHaveBeenCalled()
     await transport.close()
@@ -2940,7 +2940,7 @@ describe("V2 mini transport", () => {
     idle.resolve()
     await turn
 
-    expect(interrupted).toHaveBeenCalledWith({ sessionID: "ses_1", continue: true })
+    expect(interrupted).toHaveBeenCalledWith({ sessionID: "ses_1", resume: true })
     await transport.close()
   })
 
@@ -2960,7 +2960,7 @@ describe("V2 mini transport", () => {
       request = input
       queueMicrotask(() => {
         events.push({
-          id: input.id ?? "evt_missing",
+          id: input.id?.replace(/^msg_/, "evt_") ?? "evt_missing",
           created: 0,
           type: "session.shell.started",
           durable: durable("ses_1"),
@@ -3012,7 +3012,7 @@ describe("V2 mini transport", () => {
       includeFiles: true,
     })
 
-    expect(request).toMatchObject({ sessionID: "ses_1", command: "ls", id: expect.stringMatching(/^evt_/) })
+    expect(request).toMatchObject({ sessionID: "ses_1", command: "ls", id: expect.stringMatching(/^msg_/) })
     expect(ui.commits.filter((item) => item.shell)).toMatchObject([
       { phase: "start", partID: "shell:sh_shell", tool: "shell", toolState: "running", shell: { command: "ls" } },
       {
@@ -3149,7 +3149,7 @@ describe("V2 mini transport", () => {
     expect(done).toBe(false)
 
     events.push({
-      id: request.id ?? "evt_missing",
+      id: request.id?.replace(/^msg_/, "evt_") ?? "evt_missing",
       created: 0,
       type: "session.shell.started",
       durable: durable("ses_1", 2),
@@ -3190,7 +3190,7 @@ describe("V2 mini transport", () => {
     })
     await turn
 
-    expect(request.id).toMatch(/^evt_/)
+    expect(request.id).toMatch(/^msg_/)
     expect(ui.commits.some((item) => item.partID === "shell:sh_owned" && item.text === "/tmp")).toBe(true)
     await transport.close()
   })
@@ -3395,7 +3395,7 @@ describe("V2 mini transport", () => {
 
     expect(request).toMatchObject({
       sessionID: "ses_1",
-      command: "deploy",
+      name: "deploy",
       text: "prod",
       files: [
         { uri: "file:///tmp/context.txt", name: "context.txt" },
@@ -3449,7 +3449,7 @@ describe("V2 mini transport", () => {
         type: "user" as const,
         payload: { text: input.text },
         delivery: "steer" as const,
-        timeCreated: 2,
+        time: { created: 2 },
       })
     })
 
@@ -3501,7 +3501,8 @@ describe("V2 mini transport", () => {
     expect(refreshes).toBe(1)
 
     for (const type of [
-      "catalog.updated",
+      "provider.updated",
+      "model.updated",
       "integration.updated",
       "agent.updated",
       "command.updated",
@@ -3528,17 +3529,18 @@ describe("V2 mini transport", () => {
         type: "credential.switched",
         data: { credentialID, integrationID: "integration" },
       })
-    events.push({
-      id: "evt_foreign_catalog",
-      created: 0,
-      type: "catalog.updated",
-      location: { directory: "/other" },
-      data: {},
-    })
-    while (refreshes < 9) await Bun.sleep(0)
+    for (const type of ["provider.updated", "model.updated"] as const)
+      events.push({
+        id: `evt_foreign_${type}`,
+        created: 0,
+        type,
+        location: { directory: "/other" },
+        data: {},
+      })
+    while (refreshes < 10) await Bun.sleep(0)
     await Bun.sleep(0)
 
-    expect(refreshes).toBe(9)
+    expect(refreshes).toBe(10)
     await transport.close()
   })
 
@@ -4047,7 +4049,7 @@ describe("V2 mini transport", () => {
               type: "user",
               payload: { text: "", files: [image] },
               delivery: "queue",
-              timeCreated: 3,
+              time: { created: 3 },
             },
           ],
         },

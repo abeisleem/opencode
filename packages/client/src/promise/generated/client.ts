@@ -83,8 +83,8 @@ import type {
   SessionInterruptOutput,
   SessionBackgroundInput,
   SessionBackgroundOutput,
-  SessionMessageInput,
-  SessionMessageOutput,
+  SessionMessageGetInput,
+  SessionMessageGetOutput,
   SessionEnvironmentInput,
   SessionEnvironmentOutput,
   SessionViewInput,
@@ -555,7 +555,7 @@ export function make(options: ClientOptions) {
         request<{ readonly data: SessionImportOutput }>(
           {
             method: "POST",
-            path: `/api/session/import`,
+            path: `/api/experimental/session/import`,
             body: { info: input["info"], messages: input["messages"], location: input["location"] },
             successStatus: 200,
             declaredStatuses: [400, 401, 404, 409],
@@ -567,7 +567,7 @@ export function make(options: ClientOptions) {
         request<{ readonly data: SessionExportOutput }>(
           {
             method: "GET",
-            path: `/api/session/${encodeURIComponent(input.sessionID)}/export`,
+            path: `/api/experimental/session/${encodeURIComponent(input.sessionID)}/export`,
             query: { sanitize: input["sanitize"] },
             successStatus: 200,
             declaredStatuses: [400, 401, 404, 500],
@@ -647,8 +647,8 @@ export function make(options: ClientOptions) {
       rename: (input: SessionRenameInput, requestOptions?: RequestOptions) =>
         request<SessionRenameOutput>(
           {
-            method: "POST",
-            path: `/api/session/${encodeURIComponent(input.sessionID)}/rename`,
+            method: "PATCH",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}`,
             body: { title: input["title"] },
             successStatus: 204,
             declaredStatuses: [400, 401, 404],
@@ -695,7 +695,7 @@ export function make(options: ClientOptions) {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/command`,
             body: {
-              command: input["command"],
+              name: input["name"],
               text: input["text"],
               files: input["files"],
               agents: input["agents"],
@@ -712,8 +712,8 @@ export function make(options: ClientOptions) {
         request<SessionSkillOutput>(
           {
             method: "POST",
-            path: `/api/session/${encodeURIComponent(input.sessionID)}/skill`,
-            body: { id: input["id"], skill: input["skill"], resume: input["resume"] },
+            path: `/api/experimental/session/${encodeURIComponent(input.sessionID)}/skill`,
+            body: { id: input["id"], resume: input["resume"] },
             successStatus: 204,
             declaredStatuses: [400, 401, 404],
             empty: true,
@@ -767,7 +767,7 @@ export function make(options: ClientOptions) {
         request<SessionWaitOutput>(
           {
             method: "POST",
-            path: `/api/session/${encodeURIComponent(input.sessionID)}/wait`,
+            path: `/api/experimental/session/${encodeURIComponent(input.sessionID)}/wait`,
             successStatus: 204,
             declaredStatuses: [400, 401, 404, 503],
             empty: true,
@@ -790,8 +790,8 @@ export function make(options: ClientOptions) {
         clear: (input: SessionRevertClearInput, requestOptions?: RequestOptions) =>
           request<SessionRevertClearOutput>(
             {
-              method: "POST",
-              path: `/api/session/${encodeURIComponent(input.sessionID)}/revert/clear`,
+              method: "DELETE",
+              path: `/api/session/${encodeURIComponent(input.sessionID)}/revert`,
               successStatus: 204,
               declaredStatuses: [400, 401, 404, 409, 500],
               empty: true,
@@ -885,7 +885,7 @@ export function make(options: ClientOptions) {
             request<{ readonly data: SessionInstructionsEntryListOutput }>(
               {
                 method: "GET",
-                path: `/api/session/${encodeURIComponent(input.sessionID)}/instructions/entries`,
+                path: `/api/experimental/session/${encodeURIComponent(input.sessionID)}/instructions/entries`,
                 successStatus: 200,
                 declaredStatuses: [400, 401, 404],
                 empty: false,
@@ -896,7 +896,7 @@ export function make(options: ClientOptions) {
             request<SessionInstructionsEntryPutOutput>(
               {
                 method: "PUT",
-                path: `/api/session/${encodeURIComponent(input.sessionID)}/instructions/entries/${encodeURIComponent(input.key)}`,
+                path: `/api/experimental/session/${encodeURIComponent(input.sessionID)}/instructions/entries/${encodeURIComponent(input.key)}`,
                 body: { value: input["value"] },
                 successStatus: 204,
                 declaredStatuses: [400, 401, 404, 413],
@@ -908,7 +908,7 @@ export function make(options: ClientOptions) {
             request<SessionInstructionsEntryRemoveOutput>(
               {
                 method: "DELETE",
-                path: `/api/session/${encodeURIComponent(input.sessionID)}/instructions/entries/${encodeURIComponent(input.key)}`,
+                path: `/api/experimental/session/${encodeURIComponent(input.sessionID)}/instructions/entries/${encodeURIComponent(input.key)}`,
                 successStatus: 204,
                 declaredStatuses: [400, 401, 404],
                 empty: true,
@@ -946,7 +946,7 @@ export function make(options: ClientOptions) {
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/interrupt`,
-            query: { continue: input["continue"] },
+            query: { resume: input["resume"] },
             successStatus: 200,
             declaredStatuses: [400, 401, 404],
             empty: false,
@@ -964,22 +964,24 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      message: (input: SessionMessageInput, requestOptions?: RequestOptions) =>
-        request<{ readonly data: SessionMessageOutput }>(
-          {
-            method: "GET",
-            path: `/api/session/${encodeURIComponent(input.sessionID)}/message/${encodeURIComponent(input.messageID)}`,
-            successStatus: 200,
-            declaredStatuses: [400, 401, 404],
-            empty: false,
-          },
-          requestOptions,
-        ).then((value) => value.data),
+      message: {
+        get: (input: SessionMessageGetInput, requestOptions?: RequestOptions) =>
+          request<{ readonly data: SessionMessageGetOutput }>(
+            {
+              method: "GET",
+              path: `/api/session/${encodeURIComponent(input.sessionID)}/message/${encodeURIComponent(input.messageID)}`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ).then((value) => value.data),
+      },
       environment: (input: SessionEnvironmentInput, requestOptions?: RequestOptions) =>
         request<SessionEnvironmentOutput>(
           {
             method: "PUT",
-            path: `/api/session/${encodeURIComponent(input.sessionID)}/environment`,
+            path: `/api/experimental/session/${encodeURIComponent(input.sessionID)}/environment`,
             body: { variables: input["variables"] },
             successStatus: 204,
             declaredStatuses: [400, 401, 404],
@@ -1950,33 +1952,32 @@ export function make(options: ClientOptions) {
         ),
     },
     worktree: {
-      list: (input?: WorktreeListInput, requestOptions?: RequestOptions) =>
+      list: (input: WorktreeListInput, requestOptions?: RequestOptions) =>
         request<WorktreeListOutput>(
           {
             method: "GET",
             path: `/api/worktree`,
-            query: { location: input?.["location"] },
+            query: { projectID: input["projectID"] },
             successStatus: 200,
-            declaredStatuses: [400, 401],
+            declaredStatuses: [400, 401, 404],
             empty: false,
           },
           requestOptions,
         ),
-      create: (input?: WorktreeCreateInput, requestOptions?: RequestOptions) =>
+      create: (input: WorktreeCreateInput, requestOptions?: RequestOptions) =>
         request<WorktreeCreateOutput>(
           {
             method: "POST",
             path: `/api/worktree`,
-            query: { location: input?.["location"] },
             body: {
-              strategy: input?.["strategy"],
-              from: input?.["from"],
-              branch: input?.["branch"],
-              directory: input?.["directory"],
-              name: input?.["name"],
+              projectID: input["projectID"],
+              from: input["from"],
+              branch: input["branch"],
+              directory: input["directory"],
+              name: input["name"],
             },
             successStatus: 200,
-            declaredStatuses: [400, 401],
+            declaredStatuses: [400, 401, 404],
             empty: false,
           },
           requestOptions,
@@ -1986,22 +1987,21 @@ export function make(options: ClientOptions) {
           {
             method: "DELETE",
             path: `/api/worktree`,
-            query: { location: input["location"] },
-            body: { directory: input["directory"], force: input["force"] },
+            body: { projectID: input["projectID"], directory: input["directory"], force: input["force"] },
             successStatus: 204,
-            declaredStatuses: [400, 401],
+            declaredStatuses: [400, 401, 404],
             empty: true,
           },
           requestOptions,
         ),
-      refresh: (input?: WorktreeRefreshInput, requestOptions?: RequestOptions) =>
+      refresh: (input: WorktreeRefreshInput, requestOptions?: RequestOptions) =>
         request<WorktreeRefreshOutput>(
           {
             method: "POST",
             path: `/api/worktree/refresh`,
-            query: { location: input?.["location"] },
+            body: { projectID: input["projectID"] },
             successStatus: 204,
-            declaredStatuses: [400, 401],
+            declaredStatuses: [400, 401, 404],
             empty: true,
           },
           requestOptions,

@@ -111,7 +111,7 @@ Review endpoints in document order. For each endpoint, select one disposition an
 |---|---|---|---|---|---|
 | [x] 025 | `GET` | `/api/integration` | `integration.list` | Keep | Full integration inventory is consumed by authentication and integration-selection clients. |
 | [x] 026 | `GET` | `/api/integration/{integrationID}` | `integration.get` | Change | Missing integration now returns typed `404` instead of optional data. |
-| [ ] 027 | `POST` | `/api/experimental/integration/wellknown` | `experimental.integration.wellknown.add` |  |  |
+| [x] | `POST` | `/api/experimental/integration/wellknown` | `experimental.integration.wellknown.add` | Experimental-only | Retained outside the stable API commitment. |
 | [ ] 028 | `POST` | `/api/integration/{integrationID}/connect/key` | `integration.connect.key` |  |  |
 | [ ] 029 | `POST` | `/api/integration/{integrationID}/connect/oauth` | `integration.oauth.connect` |  |  |
 | [ ] 030 | `GET` | `/api/integration/{integrationID}/connect/oauth/{attemptID}` | `integration.oauth.status` |  |  |
@@ -145,11 +145,11 @@ Review endpoints in document order. For each endpoint, select one disposition an
 | [x] 051 | `GET` | `/api/session/{sessionID}` | `session.get` | Keep | Specific session read and typed `404` retained. |
 | [x] 052 | `DELETE` | `/api/session/{sessionID}` | `session.remove` | Keep | Session and child deletion with typed `404` retained. |
 | [x] 053 | `POST` | `/api/session/{sessionID}/fork` | `session.fork` | Change | Request now accepts optional branded `before` message ID; omission copies full history. |
-| [ ] 054 | `POST` | `/api/session/{sessionID}/agent` | `session.switchAgent` |  |  |
-| [ ] 055 | `POST` | `/api/session/{sessionID}/model` | `session.switchModel` |  |  |
-| [ ] 056 | `POST` | `/api/session/{sessionID}/rename` | `session.rename` |  |  |
-| [ ] 057 | `POST` | `/api/session/{sessionID}/move` | `session.move` |  |  |
-| [ ] 058 | `POST` | `/api/session/{sessionID}/background` | `session.background` |  |  |
+| [x] 054 | `POST` | `/api/session/{sessionID}/agent` | `session.switchAgent` | Keep | Subsequent-execution agent selection retained. |
+| [x] 055 | `POST` | `/api/session/{sessionID}/model` | `session.switchModel` | Keep | Subsequent-execution model and optional variant selection retained. |
+| [x] 056 | `PATCH` | `/api/session/{sessionID}` | `session.rename` | Change | Title-only rename now uses the session resource path. |
+| [x] 057 | `POST` | `/api/session/{sessionID}/move` | `session.move` | Change | Removed inaccurate local-change transfer claim; delivery behavior retained. |
+| [x] 058 | `POST` | `/api/session/{sessionID}/background` | `session.background` | Keep | Backgroundable foreground tools transition to background observation; idle requests remain no-ops. |
 
 ## Group 5: Session execution and inputs
 
@@ -157,17 +157,17 @@ Review endpoints in document order. For each endpoint, select one disposition an
 
 | Done | Method | Path | Operation ID | Decision | Notes |
 |---|---|---|---|---|---|
-| [ ] 059 | `POST` | `/api/session/{sessionID}/prompt` | `session.prompt` |  |  |
-| [ ] 060 | `POST` | `/api/session/{sessionID}/command` | `session.command` |  |  |
-| [ ] 061 | `POST` | `/api/session/{sessionID}/skill` | `session.skill` |  |  |
-| [ ] 062 | `POST` | `/api/session/{sessionID}/synthetic` | `session.synthetic` |  |  |
-| [ ] 063 | `POST` | `/api/session/{sessionID}/shell` | `session.shell` |  |  |
-| [ ] 064 | `POST` | `/api/session/{sessionID}/compact` | `session.compact` |  |  |
-| [ ] 065 | `POST` | `/api/session/{sessionID}/wait` | `session.wait` |  |  |
-| [ ] 066 | `POST` | `/api/session/{sessionID}/generate` | `session.generate` |  |  |
-| [ ] 067 | `POST` | `/api/session/{sessionID}/interrupt` | `session.interrupt` |  |  |
-| [ ] 068 | `PUT` | `/api/session/{sessionID}/environment` | `session.environment` |  |  |
-| [ ] 069 | `POST` | `/api/session/{sessionID}/view` | `session.view` |  |  |
+| [x] 059 | `POST` | `/api/session/{sessionID}/prompt` | `session.prompt` | Keep | Durable admission, delivery mode, and admit-only resume control retained. |
+| [x] 060 | `POST` | `/api/session/{sessionID}/command` | `session.command` | Change | Renamed request field from `command` to `name`; `204` retained. |
+| [x] 061 | `POST` | `/api/experimental/session/{sessionID}/skill` | `experimental.session.skill` | Experimental-only | Skill ID is now the `id` field; standalone activation remains experimental. |
+| [x] 062 | `POST` | `/api/session/{sessionID}/synthetic` | `session.synthetic` | Keep | Durable synthetic admission and delivery controls retained. |
+| [x] 063 | `POST` | `/api/session/{sessionID}/shell` | `session.shell` | Change | Caller ID is now the optimistic shell message ID; server derives its event ID. |
+| [x] 064 | `POST` | `/api/session/{sessionID}/compact` | `session.compact` | Keep | Durable compaction admission and delivery controls retained. |
+| [x] 065 | `POST` | `/api/experimental/session/{sessionID}/wait` | `experimental.session.wait` | Experimental-only | Race-free idle barrier retained outside the stable API. |
+| [x] 066 | `POST` | `/api/session/{sessionID}/generate` | `session.generate` | Keep | Transient generation from session context retained. |
+| [x] 067 | `POST` | `/api/session/{sessionID}/interrupt` | `session.interrupt` | Change | Renamed `continue` to `resume` across public and internal interruption APIs. |
+| [x] 068 | `PUT` | `/api/experimental/session/{sessionID}/environment` | `experimental.session.environment` | Experimental-only | Process-local environment replacement retained outside the stable API. |
+| [x] 069 | `POST` | `/api/session/{sessionID}/view` | `session.view` | Change | Idle watermark now uses the standard epoch-millisecond timestamp schema. |
 
 ## Group 6: Session history and recovery
 
@@ -175,19 +175,19 @@ Review endpoints in document order. For each endpoint, select one disposition an
 
 | Done | Method | Path | Operation ID | Decision | Notes |
 |---|---|---|---|---|---|
-| [ ] 070 | `POST` | `/api/session/import` | `session.import` |  |  |
-| [ ] 071 | `GET` | `/api/session/{sessionID}/export` | `session.export` |  |  |
-| [ ] 072 | `POST` | `/api/session/{sessionID}/revert/stage` | `session.revert.stage` |  |  |
-| [ ] 073 | `POST` | `/api/session/{sessionID}/revert/clear` | `session.revert.clear` |  |  |
-| [ ] 074 | `POST` | `/api/session/{sessionID}/revert/commit` | `session.revert.commit` |  |  |
-| [ ] 075 | `GET` | `/api/session/{sessionID}/context` | `session.context` |  |  |
-| [ ] 076 | `GET` | `/api/session/{sessionID}/diff` | `session.diff` |  |  |
-| [ ] 077 | `GET` | `/api/session/{sessionID}/instructions/entries` | `session.instructions.entry.list` |  |  |
-| [ ] 078 | `PUT` | `/api/session/{sessionID}/instructions/entries/{key}` | `session.instructions.entry.put` |  |  |
-| [ ] 079 | `DELETE` | `/api/session/{sessionID}/instructions/entries/{key}` | `session.instructions.entry.remove` |  |  |
-| [ ] 080 | `GET` | `/api/experimental/session/{sessionID}/log` | `session.log` |  |  |
-| [ ] 081 | `GET` | `/api/session/{sessionID}/message/{messageID}` | `session.message` |  |  |
-| [ ] 082 | `GET` | `/api/session/{sessionID}/message` | `message.list` |  |  |
+| [x] 070 | `POST` | `/api/experimental/session/import` | `experimental.session.import` | Experimental-only | Existing projected transcript import contract retained outside the stable API. |
+| [x] 071 | `GET` | `/api/experimental/session/{sessionID}/export` | `experimental.session.export` | Experimental-only | Existing projected transcript export contract retained outside the stable API. |
+| [x] 072 | `POST` | `/api/session/{sessionID}/revert/stage` | `session.revert.stage` | Keep | Existing staged history and optional file restoration behavior retained. |
+| [x] 073 | `DELETE` | `/api/session/{sessionID}/revert` | `session.revert.clear` | Change | Clearing staged revert now deletes the session revert resource. |
+| [x] 074 | `POST` | `/api/session/{sessionID}/revert/commit` | `session.revert.commit` | Keep | Explicit staged-revert commit action retained. |
+| [x] 075 | `GET` | `/api/session/{sessionID}/context` | `session.context` | Keep | Active model-context projection retained. |
+| [x] 076 | `GET` | `/api/session/{sessionID}/diff` | `session.diff` | Keep | Turn-range structured diff contract retained. |
+| [x] 077 | `GET` | `/api/experimental/session/{sessionID}/instructions/entries` | `experimental.session.instructions.entry.list` | Experimental-only | API-managed durable context entries retained outside the stable API. |
+| [x] 078 | `PUT` | `/api/experimental/session/{sessionID}/instructions/entries/{key}` | `experimental.session.instructions.entry.put` | Experimental-only | API-managed durable context entries retained outside the stable API. |
+| [x] 079 | `DELETE` | `/api/experimental/session/{sessionID}/instructions/entries/{key}` | `experimental.session.instructions.entry.remove` | Experimental-only | API-managed durable context entries retained outside the stable API. |
+| [x] | `GET` | `/api/experimental/session/{sessionID}/log` | `session.log` | Experimental-only | Retained outside the stable API commitment. |
+| [x] 081 | `GET` | `/api/session/{sessionID}/message/{messageID}` | `session.message.get` | Change | Normalized specific-message operation ID. |
+| [x] 082 | `GET` | `/api/session/{sessionID}/message` | `session.message.list` | Change | Normalized session-scoped message-list operation ID. |
 
 ## Group 7: Inbox, permissions, and forms
 
@@ -195,7 +195,7 @@ Review endpoints in document order. For each endpoint, select one disposition an
 
 | Done | Method | Path | Operation ID | Decision | Notes |
 |---|---|---|---|---|---|
-| [ ] 083 | `GET` | `/api/session/{sessionID}/inbox` | `session.inbox.list` |  |  |
+| [x] 083 | `GET` | `/api/session/{sessionID}/inbox` | `session.inbox.list` | Change | Inbox timestamps now use the standard nested `time.created` shape. |
 | [ ] 084 | `DELETE` | `/api/session/{sessionID}/inbox/{inboxID}` | `session.inbox.cancel` |  |  |
 | [ ] 085 | `POST` | `/api/session/{sessionID}/inbox/{inboxID}/steer` | `session.inbox.steer` |  |  |
 | [ ] 086 | `POST` | `/api/session/{sessionID}/inbox/{inboxID}/queue` | `session.inbox.queue` |  |  |
@@ -247,17 +247,17 @@ Review endpoints in document order. For each endpoint, select one disposition an
 | [ ] 118 | `DELETE` | `/api/pty/{ptyID}` | `pty.remove` |  |  |
 | [ ] 119 | `POST` | `/api/pty/{ptyID}/connect-token` | `pty.connect.token` |  |  |
 | [ ] 120 | `GET` | `/api/pty/{ptyID}/connect` | `pty.connect` |  |  |
-| [ ] 121 | `GET` | `/api/experimental/session/{sessionID}/terminal/read` | `server.experimental.persistentPty.read` |  |  |
-| [ ] 122 | `GET` | `/api/experimental/session/{sessionID}/terminal` | `server.experimental.persistentPty.list` |  |  |
-| [ ] 123 | `POST` | `/api/experimental/session/{sessionID}/terminal` | `server.experimental.persistentPty.create` |  |  |
-| [ ] 124 | `POST` | `/api/experimental/persistent-pty/shutdown` | `server.experimental.persistentPty.shutdown` |  |  |
-| [ ] 125 | `POST` | `/api/experimental/persistent-pty/handoff` | `server.experimental.persistentPty.handoff` |  |  |
-| [ ] 126 | `GET` | `/api/experimental/persistent-pty/{ptyID}` | `server.experimental.persistentPty.get` |  |  |
-| [ ] 127 | `PUT` | `/api/experimental/persistent-pty/{ptyID}` | `server.experimental.persistentPty.update` |  |  |
-| [ ] 128 | `DELETE` | `/api/experimental/persistent-pty/{ptyID}` | `server.experimental.persistentPty.remove` |  |  |
-| [ ] 129 | `GET` | `/api/experimental/persistent-pty/{ptyID}/snapshot` | `server.experimental.persistentPty.snapshot` |  |  |
-| [ ] 130 | `POST` | `/api/experimental/persistent-pty/{ptyID}/connect-token` | `server.experimental.persistentPty.connectToken` |  |  |
-| [ ] 131 | `GET` | `/api/experimental/persistent-pty/{ptyID}/connect` | `persistentPty.connect` |  |  |
+| [x] | `GET` | `/api/experimental/session/{sessionID}/terminal/read` | `server.experimental.persistentPty.read` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `GET` | `/api/experimental/session/{sessionID}/terminal` | `server.experimental.persistentPty.list` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `POST` | `/api/experimental/session/{sessionID}/terminal` | `server.experimental.persistentPty.create` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `POST` | `/api/experimental/persistent-pty/shutdown` | `server.experimental.persistentPty.shutdown` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `POST` | `/api/experimental/persistent-pty/handoff` | `server.experimental.persistentPty.handoff` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `GET` | `/api/experimental/persistent-pty/{ptyID}` | `server.experimental.persistentPty.get` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `PUT` | `/api/experimental/persistent-pty/{ptyID}` | `server.experimental.persistentPty.update` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `DELETE` | `/api/experimental/persistent-pty/{ptyID}` | `server.experimental.persistentPty.remove` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `GET` | `/api/experimental/persistent-pty/{ptyID}/snapshot` | `server.experimental.persistentPty.snapshot` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `POST` | `/api/experimental/persistent-pty/{ptyID}/connect-token` | `server.experimental.persistentPty.connectToken` | Experimental-only | Retained outside the stable API commitment. |
+| [x] | `GET` | `/api/experimental/persistent-pty/{ptyID}/connect` | `persistentPty.connect` | Experimental-only | Retained outside the stable API commitment. |
 | [ ] 132 | `GET` | `/api/shell` | `shell.list` |  |  |
 | [ ] 133 | `POST` | `/api/shell` | `shell.create` |  |  |
 | [ ] 134 | `GET` | `/api/shell/{id}` | `shell.get` |  |  |
@@ -276,4 +276,4 @@ Review endpoints in document order. For each endpoint, select one disposition an
 | [ ] 140 | `GET` | `/api/event` | `event.subscribe` |  |  |
 | [ ] 141 | `GET` | `/api/debug/location` | `debug.location.list` |  |  |
 | [ ] 142 | `DELETE` | `/api/debug/location` | `debug.location.evict` |  |  |
-| [ ] 143 | `GET` | `/api/experimental/migration/v1` | `experimental.migration.v1.status` |  |  |
+| [x] | `GET` | `/api/experimental/migration/v1` | `experimental.migration.v1.status` | Experimental-only | Retained outside the stable API commitment. |

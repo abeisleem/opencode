@@ -376,8 +376,13 @@ function messageIDFromEvent(id: string) {
   return SessionMessage.ID.fromEvent(Event.ID.make(id))
 }
 
+function eventIDFromMessage(id: SessionMessage.ID) {
+  return Event.ID.make(id.replace(/^msg_/, "evt_"))
+}
+
 const catalogEvents = new Set([
-  "catalog.updated",
+  "provider.updated",
+  "model.updated",
   "integration.updated",
   "credential.switched",
   "agent.updated",
@@ -921,7 +926,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     ]
     const messages = await Promise.allSettled(
       messageIDs.map((messageID) =>
-        client.session.message({ sessionID: input.sessionID, messageID }, { signal: attempt.signal }),
+        client.session.message.get({ sessionID: input.sessionID, messageID }, { signal: attempt.signal }),
       ),
     )
     if (!current(attempt)) return permissions
@@ -1029,7 +1034,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
       mergePending({
         id: event.data.inboxID,
         sessionID: event.data.sessionID,
-        timeCreated: event.created,
+        time: { created: event.created },
         ...event.data.item,
       })
       return
@@ -1567,19 +1572,20 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     const output = new Promise<void>((resolve) => {
       rendered = resolve
     })
-    const eventID = Event.ID.create()
+    const messageID = SessionMessage.ID.create()
+    const eventID = eventIDFromMessage(messageID)
     const active: ShellWait = {
       eventID,
-      messageID: messageIDFromEvent(eventID),
+      messageID,
       resolve: rendered,
       abort: () => abort.abort(),
     }
     state.shellWait = active
-    input.trace?.write("send.shell", { sessionID: input.sessionID, id: eventID, command: next.prompt.text })
+    input.trace?.write("send.shell", { sessionID: input.sessionID, id: messageID, command: next.prompt.text })
     write([], { phase: "running", status: "running shell" })
     try {
       await client.session.shell(
-        { sessionID: input.sessionID, id: eventID, command: next.prompt.text },
+        { sessionID: input.sessionID, id: messageID, command: next.prompt.text },
         { signal: abort.signal },
       )
       await Promise.race([output, wait(SHELL_OUTPUT_GRACE_MS, abort.signal)])
@@ -1612,7 +1618,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     state.wait = active
     const interrupt = () => {
       active.interrupted = true
-      void sdk.session.interrupt({ sessionID: input.sessionID, continue: true }).catch(() => {})
+      void sdk.session.interrupt({ sessionID: input.sessionID, resume: true }).catch(() => {})
     }
     next.signal?.addEventListener("abort", interrupt, { once: true })
     try {
@@ -1751,7 +1757,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
     return client.session.command(
       {
         sessionID: input.sessionID,
-        command: command.name,
+        name: command.name,
         text: command.arguments,
         files: attachments.files.length ? attachments.files : undefined,
         agents: agents.length ? agents : undefined,
@@ -1858,7 +1864,7 @@ export async function createSessionTransport(input: StreamInput): Promise<Sessio
       // A failed request paints nothing, so the two-press gesture stays available for retry,
       // and a lifecycle event racing the ack wins via the epoch guard.
       const epoch = state.executionEpoch
-      await sdk.session.interrupt({ sessionID: input.sessionID, continue: true }).then(
+      await sdk.session.interrupt({ sessionID: input.sessionID, resume: true }).then(
         () => {
           if (state.executionEpoch === epoch) paintIdle(blockerStatus(state.view))
         },

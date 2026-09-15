@@ -21,7 +21,6 @@ import { AnthropicMessages, OpenAIResponses } from "@opencode/ai/protocols"
 import { compileRequest } from "@opencode/ai/route/client"
 import { TestLLM } from "@opencode/ai/testing"
 import type { SessionHooks } from "@opencode/plugin/effect/session"
-import { Catalog } from "@opencode/core/catalog"
 import { Database } from "@opencode/core/database/database"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
@@ -89,7 +88,7 @@ import { promptLocationNode } from "./fixture/prompt-location"
 import { LocationServiceMap } from "@opencode/core/location-service-map"
 import { Expected } from "./lib/session-message"
 import { permissionLayer } from "./lib/permission"
-import { agentHost, catalogHost, host } from "./plugin/host"
+import { agentHost, modelHost, host } from "./plugin/host"
 import { CodeModeInstructions } from "@opencode/core/codemode/instructions"
 
 const emptyCodeMode = `\n\n${CodeModeInstructions.render({ total: 0, shown: 0, namespaces: [] })}`
@@ -392,19 +391,12 @@ const layer = Layer.unwrap(
         }),
       }),
     ])
-    const promptCatalog = Layer.mock(Catalog.Service, {
-      provider: {
-        get: () => Effect.undefined,
-        all: () => Effect.succeed([]),
-        available: () => Effect.succeed([]),
-      },
-      model: {
-        get: () => Effect.undefined,
-        all: () => Effect.succeed([]),
-        available: () => Effect.succeed([]),
-        default: () => Effect.undefined,
-        small: () => Effect.undefined,
-      },
+    const promptModels = Layer.mock(Model.Service, {
+      get: () => Effect.undefined,
+      all: () => Effect.succeed([]),
+      available: () => Effect.succeed([]),
+      default: () => Effect.undefined,
+      small: () => Effect.undefined,
     })
     const replacements: LayerNode.Replacements = [
       Snapshot.node.replace(Snapshot.noopLayer),
@@ -464,7 +456,7 @@ const layer = Layer.unwrap(
         SessionStore.node,
         SessionInbox.node,
         Agent.node,
-        Catalog.node,
+        Model.node,
         Tool.node,
         PluginHooks.node,
         echoNode,
@@ -485,7 +477,7 @@ const layer = Layer.unwrap(
         ...replacements,
         Bus.node.replace(Bus.configured({ persist: true })),
         LocationServiceMap.node.replace(promptLocationNode),
-        Catalog.node.replace(promptCatalog),
+        Model.node.replace(promptModels),
         SessionExecution.node.replace(execution),
       ],
     )
@@ -518,11 +510,11 @@ const setup = Effect.gen(function* () {
   const bus = yield* Bus.Service
   const sessionInbox = yield* SessionInbox.Service
   const agents = yield* Agent.Service
-  const catalog = yield* Catalog.Service
+  const models = yield* Model.Service
   const hooks = yield* PluginHooks.Service
   const pluginHost = host({
     agent: agentHost(agents),
-    catalog: catalogHost(catalog),
+    model: modelHost(models),
     session: { hook: (name, callback) => hooks.register("session", name, callback) },
   })
   yield* Effect.forEach(OptimizePlugin.Plugins, (plugin) => plugin.effect(pluginHost), {
@@ -1994,6 +1986,38 @@ describe("SessionRunnerLLM", () => {
     yield* replaySessionProjection(sessionID)
     expect(yield* s.messages).toHaveLength(6)
     yield* s.runPrompt("Fourth")
+  })
+
+  scenario("records a same-model effort switch as a cache-preserving effort update", function* (s) {
+    s.currentModel = LanguageModel.make({ id: "claude-opus-5", provider: "anthropic", route: AnthropicMessages.route })
+    const model = { id: ID.make("claude-opus-5"), providerID: Provider.ID.make("anthropic") }
+    yield* s.bus.publish(SessionEvent.ModelSelected, {
+      sessionID,
+      model: { ...model, variant: Model.VariantID.make("high") },
+    })
+    yield* s.llm.push(TestLLM.text("Earlier answer", "text-effort-high"))
+    yield* s.runPrompt("First")
+    yield* s.bus.publish(SessionEvent.ModelSelected, {
+      sessionID,
+      model: { ...model, variant: Model.VariantID.make("low") },
+    })
+    s.currentModel = LanguageModel.update(s.currentModel, { defaults: { providerOptions: { effort: "low" } } })
+    yield* s.llm.push(TestLLM.text("Later answer", "text-effort-low"))
+    yield* s.runPrompt("Second")
+
+    expect(messageRoles(s.requests[1])).toEqual(["user", "assistant", "system", "user"])
+    expect(s.requests[1]?.messages[2]).toEqual(Message.effort({ effort: "low", previous: "high" }))
+
+    const compiled = yield* compileRequest(s.requests[1]!)
+    expect(compiled.body).toMatchObject({
+      output_config: { effort: "high" },
+      messages: [
+        { role: "user" },
+        { role: "assistant" },
+        { role: "system", content: [], output_config: { effort: "low" } },
+        { role: "user" },
+      ],
+    })
   })
 
   scenario("preserves instruction values while a source is temporarily unavailable", function* (s) {

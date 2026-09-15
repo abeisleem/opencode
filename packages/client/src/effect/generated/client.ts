@@ -89,8 +89,8 @@ import type {
   SessionInterruptOutput,
   SessionBackgroundInput,
   SessionBackgroundOutput,
-  SessionMessageInput,
-  SessionMessageOutput,
+  SessionMessageGetInput,
+  SessionMessageGetOutput,
   SessionEnvironmentInput,
   SessionEnvironmentOutput,
   SessionViewInput,
@@ -490,7 +490,7 @@ const EndpointSessionCommand = (raw: RawClient["server.session"]) => (input: Ses
     raw["session.command"]({
       params: { sessionID: input["sessionID"] },
       payload: {
-        command: input["command"],
+        name: input["name"],
         text: input["text"],
         files: input["files"],
         agents: input["agents"],
@@ -504,7 +504,7 @@ const EndpointSessionSkill = (raw: RawClient["server.session"]) => (input: Sessi
   preserveEffect<SessionSkillOutput>()(
     raw["session.skill"]({
       params: { sessionID: input["sessionID"] },
-      payload: { id: input["id"], skill: input["skill"], resume: input["resume"] },
+      payload: { id: input["id"], resume: input["resume"] },
     }).pipe(Effect.mapError(mapClientError)),
   )
 
@@ -668,10 +668,9 @@ const EndpointSessionLog = (raw: RawClient["server.session"]) => (input: Session
 
 const EndpointSessionInterrupt = (raw: RawClient["server.session"]) => (input: SessionInterruptInput) =>
   preserveEffect<SessionInterruptOutput>()(
-    raw["session.interrupt"]({
-      params: { sessionID: input["sessionID"] },
-      query: { continue: input["continue"] },
-    }).pipe(Effect.mapError(mapClientError)),
+    raw["session.interrupt"]({ params: { sessionID: input["sessionID"] }, query: { resume: input["resume"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
   )
 
 const EndpointSessionBackground = (raw: RawClient["server.session"]) => (input: SessionBackgroundInput) =>
@@ -679,8 +678,8 @@ const EndpointSessionBackground = (raw: RawClient["server.session"]) => (input: 
     raw["session.background"]({ params: { sessionID: input["sessionID"] } }).pipe(Effect.mapError(mapClientError)),
   )
 
-const EndpointSessionMessage = (raw: RawClient["server.session"]) => (input: SessionMessageInput) =>
-  preserveEffect<SessionMessageOutput>()(
+const EndpointSessionMessageGet = (raw: RawClient["server.session"]) => (input: SessionMessageGetInput) =>
+  preserveEffect<SessionMessageGetOutput>()(
     raw["session.message"]({ params: { sessionID: input["sessionID"], messageID: input["messageID"] } }).pipe(
       Effect.mapError(mapClientError),
       Effect.map((value) => value.data),
@@ -747,7 +746,7 @@ const adaptGroupSession = (raw: RawClient["server.session"]) => ({
   log: EndpointSessionLog(raw),
   interrupt: EndpointSessionInterrupt(raw),
   background: EndpointSessionBackground(raw),
-  message: EndpointSessionMessage(raw),
+  message: { get: EndpointSessionMessageGet(raw) },
   environment: EndpointSessionEnvironment(raw),
   view: EndpointSessionView(raw),
 })
@@ -1434,21 +1433,20 @@ const EndpointReferenceList = (raw: RawClient["server.reference"]) => (input?: R
 
 const adaptGroupReference = (raw: RawClient["server.reference"]) => ({ list: EndpointReferenceList(raw) })
 
-const EndpointWorktreeList = (raw: RawClient["server.worktree"]) => (input?: WorktreeListInput) =>
+const EndpointWorktreeList = (raw: RawClient["server.worktree"]) => (input: WorktreeListInput) =>
   preserveEffect<WorktreeListOutput>()(
-    raw["worktree.list"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
+    raw["worktree.list"]({ query: { projectID: input["projectID"] } }).pipe(Effect.mapError(mapClientError)),
   )
 
-const EndpointWorktreeCreate = (raw: RawClient["server.worktree"]) => (input?: WorktreeCreateInput) =>
+const EndpointWorktreeCreate = (raw: RawClient["server.worktree"]) => (input: WorktreeCreateInput) =>
   preserveEffect<WorktreeCreateOutput>()(
     raw["worktree.create"]({
-      query: { location: input?.["location"] },
       payload: {
-        strategy: input?.["strategy"],
-        from: input?.["from"],
-        branch: input?.["branch"],
-        directory: input?.["directory"],
-        name: input?.["name"],
+        projectID: input["projectID"],
+        from: input["from"],
+        branch: input["branch"],
+        directory: input["directory"],
+        name: input["name"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )
@@ -1456,14 +1454,13 @@ const EndpointWorktreeCreate = (raw: RawClient["server.worktree"]) => (input?: W
 const EndpointWorktreeRemove = (raw: RawClient["server.worktree"]) => (input: WorktreeRemoveInput) =>
   preserveEffect<WorktreeRemoveOutput>()(
     raw["worktree.remove"]({
-      query: { location: input["location"] },
-      payload: { directory: input["directory"], force: input["force"] },
+      payload: { projectID: input["projectID"], directory: input["directory"], force: input["force"] },
     }).pipe(Effect.mapError(mapClientError)),
   )
 
-const EndpointWorktreeRefresh = (raw: RawClient["server.worktree"]) => (input?: WorktreeRefreshInput) =>
+const EndpointWorktreeRefresh = (raw: RawClient["server.worktree"]) => (input: WorktreeRefreshInput) =>
   preserveEffect<WorktreeRefreshOutput>()(
-    raw["worktree.refresh"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
+    raw["worktree.refresh"]({ payload: { projectID: input["projectID"] } }).pipe(Effect.mapError(mapClientError)),
   )
 
 const adaptGroupWorktree = (raw: RawClient["server.worktree"]) => ({

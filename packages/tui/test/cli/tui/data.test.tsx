@@ -1669,7 +1669,7 @@ test("restores queued compaction from durable pending input", async () => {
     {
       id: "message-compaction-queued",
       sessionID,
-      timeCreated: 1,
+      time: { created: 1 },
       type: "compaction" as const,
       payload: {},
       delivery: "queue" as const,
@@ -1677,7 +1677,7 @@ test("restores queued compaction from durable pending input", async () => {
     {
       id: "message-compaction-later",
       sessionID,
-      timeCreated: 2,
+      time: { created: 2 },
       type: "compaction" as const,
       payload: {},
       delivery: "queue" as const,
@@ -1936,7 +1936,7 @@ test("refreshes MCP resources after catalog updates", async () => {
   }
 })
 
-test("refreshes effective catalog data after catalog updates", async () => {
+test("refreshes provider and model data independently after domain updates", async () => {
   const events = createEventStream()
   const requests = { model: 0, provider: 0 }
   const calls = createFetch((url) => {
@@ -1965,8 +1965,13 @@ test("refreshes effective catalog data after catalog updates", async () => {
   try {
     await wait(() => requests.model > 0 && requests.provider > 0)
     const before = { ...requests }
-    emitEvent(events, { id: "evt_catalog", created: 0, type: "catalog.updated", data: {} })
-    await wait(() => requests.model > before.model && requests.provider > before.provider)
+    emitEvent(events, { id: "evt_provider", created: 0, type: "provider.updated", data: {} })
+    await wait(() => requests.provider > before.provider)
+    expect(requests).toEqual({ model: before.model, provider: before.provider + 1 })
+
+    emitEvent(events, { id: "evt_model", created: 0, type: "model.updated", data: {} })
+    await wait(() => requests.model > before.model)
+    expect(requests).toEqual({ model: before.model + 1, provider: before.provider + 1 })
   } finally {
     app.renderer.destroy()
   }
@@ -2916,7 +2921,7 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
       {
         id: messageID,
         sessionID,
-        timeCreated: 0,
+        time: { created: 0 },
         type: "user",
         payload: { text: "hello" },
         delivery: "steer",
@@ -3270,7 +3275,7 @@ test("admits prompts optimistically and reconciles with the durable echo", async
       {
         id: messageID,
         sessionID,
-        timeCreated: 5,
+        time: { created: 5 },
         type: "user",
         payload: { text: "hello", files: [echoFile] },
         delivery: "steer",
@@ -3298,7 +3303,7 @@ test("hydrates durable pending prompts into the visible transcript", async () =>
   const item = {
     id: "msg_pending_1",
     sessionID,
-    timeCreated: 5,
+    time: { created: 5 },
     type: "user" as const,
     payload: { text: "waiting" },
     delivery: "steer" as const,
@@ -3352,7 +3357,7 @@ test("keeps the row when the response lands before the echo", async () => {
   const admission = {
     id: messageID,
     sessionID,
-    timeCreated: 1,
+    time: { created: 1 },
     type: "user",
     payload: { text: "hello" },
     delivery: "steer",
@@ -3459,7 +3464,7 @@ test("a retry under the same client-minted ID cannot duplicate rows", async () =
   const admission = {
     id: messageID,
     sessionID,
-    timeCreated: 1,
+    time: { created: 1 },
     type: "user",
     payload: { text: "hello" },
     delivery: "steer",

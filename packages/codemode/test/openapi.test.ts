@@ -251,11 +251,11 @@ describe("OpenAPI.fromSpec", () => {
     if (!Tool.isTool(switchAgent)) throw new Error("session.switchAgent was not generated")
     expect(inputTypeScript(switchAgent)).toBe("{ sessionID: string; agent: string }")
 
-    const instructionPut = toolAt(result.tools, "session.instructions.entry.put")
+    const instructionPut = toolAt(result.tools, "experimental.session.instructions.entry.put")
     expect(Tool.isTool(instructionPut)).toBe(true)
-    if (!Tool.isTool(instructionPut)) throw new Error("session.instructions.entry.put was not generated")
+    if (!Tool.isTool(instructionPut)) throw new Error("experimental.session.instructions.entry.put was not generated")
     expect(inputTypeScript(instructionPut)).toBe("{ sessionID: string; key: string; value: unknown }")
-    expect(toolAt(result.tools, "session_instructions_entry_put_2")).toBeUndefined()
+    expect(toolAt(result.tools, "experimental_session_instructions_entry_put_2")).toBeUndefined()
     expect(Tool.isTool(toolAt(result.tools, "pty.connect"))).toBe(false)
     expect(toolAt(result.tools, "session.log")).toBeUndefined()
     expect(toolAt(result.tools, "event.subscribe")).toBeUndefined()
@@ -1050,9 +1050,7 @@ describe("OpenAPI.fromSpec", () => {
     const location = toolAt(OpenAPI.fromSpec({ spec: await opencodeSpec(), baseUrl }).tools, "location.get")
     if (!Tool.isTool(location)) throw new Error("location.get was not generated")
 
-    await Effect.runPromise(
-      location.execute({ location: { directory: "/tmp" } }).pipe(Effect.provide(client.layer)),
-    )
+    await Effect.runPromise(location.execute({ location: { directory: "/tmp" } }).pipe(Effect.provide(client.layer)))
 
     const url = new URL(client.requests[0]!.url)
     expect(url.searchParams.get("location[directory]")).toBe("/tmp")

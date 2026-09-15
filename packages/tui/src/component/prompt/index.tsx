@@ -521,7 +521,7 @@ export function Prompt(props: PromptProps) {
           if (store.interrupt >= 2) {
             void client.api.session.interrupt({
               sessionID: props.sessionID,
-              continue: true,
+              resume: true,
             })
             setStore("interrupt", 0)
           }
@@ -1287,7 +1287,7 @@ export function Prompt(props: PromptProps) {
         await commitModel()
         return client.api.session.command({
           sessionID: target,
-          command: slashHead.name,
+          name: slashHead.name,
           text: slashHead.arguments,
           files: entry.files,
           agents: entry.agents,

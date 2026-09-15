@@ -184,7 +184,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         "session.view",
         Effect.fn(function* (ctx) {
           yield* session
-            .view({ sessionID: ctx.params.sessionID, idle: ctx.payload.idle })
+            .view({ sessionID: ctx.params.sessionID, idle: DateTime.toEpochMillis(ctx.payload.idle) })
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           return HttpApiSchema.NoContent.make()
         }),
@@ -318,7 +318,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
           yield* session
             .command({
               sessionID: ctx.params.sessionID,
-              command: ctx.payload.command,
+              command: ctx.payload.name,
               text: ctx.payload.text,
               files: ctx.payload.files,
               agents: ctx.payload.agents,
@@ -353,8 +353,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
           yield* session
             .skill({
               sessionID: ctx.params.sessionID,
-              id: ctx.payload.id,
-              skill: ctx.payload.skill,
+              skill: ctx.payload.id,
               resume: ctx.payload.resume,
             })
             .pipe(
@@ -592,7 +591,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.interrupt",
         Effect.fn(function* (ctx) {
-          return { interrupted: yield* session.interrupt(ctx.params.sessionID, { continue: ctx.query.continue }) }
+          return { interrupted: yield* session.interrupt(ctx.params.sessionID, { resume: ctx.query.resume }) }
         }),
       )
       .handle(

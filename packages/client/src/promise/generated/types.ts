@@ -206,12 +206,9 @@ export type ModelMaxTokensField = "max_completion_tokens" | "max_tokens"
 
 export type ProviderCompaction = { mode: "local" } | { mode: "provider"; threshold?: number }
 
-export type ModelCapabilities = {
-  tools: boolean
-  input: Array<string>
-  output: Array<string>
-  responsesWebsockets?: boolean
-}
+export type ProviderTransport = "http" | "websocket"
+
+export type ModelCapabilities = { tools: boolean; input: Array<string>; output: Array<string> }
 
 export type ModelVariant = {
   id: string
@@ -529,7 +526,7 @@ export type SessionProviderContext = { version: 1; provenance: SessionProviderCo
 export type SessionInboxSynthetic = {
   id: string
   sessionID: string
-  timeCreated: number
+  time: { created: number }
   type: "synthetic"
   payload: SessionInboxSyntheticPayload
   delivery: SessionInboxDelivery
@@ -538,7 +535,7 @@ export type SessionInboxSynthetic = {
 export type SessionInboxCompaction = {
   id: string
   sessionID: string
-  timeCreated: number
+  time: { created: number }
   type: "compaction"
   payload: SessionInboxCompactionPayload
   delivery: SessionInboxDelivery
@@ -851,11 +848,20 @@ export type IntegrationUpdated = {
   data: {}
 }
 
-export type CatalogUpdated = {
+export type ProviderUpdated = {
   id: string
   created: number
   metadata?: { [x: string]: any }
-  type: "catalog.updated"
+  type: "provider.updated"
+  location?: LocationRef
+  data: {}
+}
+
+export type ModelUpdated = {
+  id: string
+  created: number
+  metadata?: { [x: string]: any }
+  type: "model.updated"
   location?: LocationRef
   data: {}
 }
@@ -1346,7 +1352,7 @@ export type ProviderInfo = {
   activation: "auto" | "enabled" | "disabled"
   package: string
   compaction?: ProviderCompaction
-  websocket?: boolean
+  transport?: ProviderTransport
   settings?: { [x: string]: any }
   headers?: { [x: string]: string }
   body?: { [x: string]: any }
@@ -1620,7 +1626,7 @@ export type VcsInfo = { branch: VcsBranch }
 export type SessionInboxMove = {
   id: string
   sessionID: string
-  timeCreated: number
+  time: { created: number }
   type: "move"
   delivery: SessionInboxDelivery
   payload: SessionInboxMovePayload
@@ -1809,7 +1815,7 @@ export type ModelInfo = {
   compatibility?: ModelCompatibility
   package?: string
   compaction?: ProviderCompaction
-  websocket?: boolean
+  transport?: ProviderTransport
   settings?: { [x: string]: any }
   headers?: { [x: string]: string }
   body?: { [x: string]: any }
@@ -2040,7 +2046,7 @@ export type ConfigEntry =
         providers?: {
           [x: string]: {
             compaction?: ProviderCompaction
-            websocket?: boolean
+            transport?: ProviderTransport
             canonical?: string
             name?: string
             env?: Array<string>
@@ -2051,7 +2057,7 @@ export type ConfigEntry =
             models?: {
               [x: string]: {
                 compaction?: ProviderCompaction
-                websocket?: boolean
+                transport?: ProviderTransport
                 modelID?: string
                 family?: string
                 name?: string
@@ -2098,7 +2104,7 @@ export type ConfigEntry =
 export type SessionInboxUser = {
   id: string
   sessionID: string
-  timeCreated: number
+  time: { created: number }
   type: "user"
   payload: SessionInboxUserPayload
   delivery: SessionInboxDelivery
@@ -2298,7 +2304,8 @@ export type V2Event =
   | CredentialUpdated
   | CredentialSwitched
   | IntegrationUpdated
-  | CatalogUpdated
+  | ProviderUpdated
+  | ModelUpdated
   | AgentUpdated
   | SessionCreated
   | SessionAgentSelected
@@ -4066,8 +4073,8 @@ export type SessionPromptOutput = { data: SessionInboxUser }["data"]
 
 export type SessionCommandInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
-  readonly command: {
-    readonly command: string
+  readonly name: {
+    readonly name: string
     readonly text: string
     readonly files?: ReadonlyArray<{
       readonly uri: string
@@ -4084,9 +4091,9 @@ export type SessionCommandInput = {
       readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: ("steer" | "queue") | null
-  }["command"]
+  }["name"]
   readonly text: {
-    readonly command: string
+    readonly name: string
     readonly text: string
     readonly files?: ReadonlyArray<{
       readonly uri: string
@@ -4105,7 +4112,7 @@ export type SessionCommandInput = {
     readonly delivery?: ("steer" | "queue") | null
   }["text"]
   readonly files?: {
-    readonly command: string
+    readonly name: string
     readonly text: string
     readonly files?: ReadonlyArray<{
       readonly uri: string
@@ -4124,7 +4131,7 @@ export type SessionCommandInput = {
     readonly delivery?: ("steer" | "queue") | null
   }["files"]
   readonly agents?: {
-    readonly command: string
+    readonly name: string
     readonly text: string
     readonly files?: ReadonlyArray<{
       readonly uri: string
@@ -4143,7 +4150,7 @@ export type SessionCommandInput = {
     readonly delivery?: ("steer" | "queue") | null
   }["agents"]
   readonly skills?: {
-    readonly command: string
+    readonly name: string
     readonly text: string
     readonly files?: ReadonlyArray<{
       readonly uri: string
@@ -4162,7 +4169,7 @@ export type SessionCommandInput = {
     readonly delivery?: ("steer" | "queue") | null
   }["skills"]
   readonly delivery?: {
-    readonly command: string
+    readonly name: string
     readonly text: string
     readonly files?: ReadonlyArray<{
       readonly uri: string
@@ -4186,21 +4193,8 @@ export type SessionCommandOutput = void
 
 export type SessionSkillInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
-  readonly id?: {
-    readonly id?: string | undefined
-    readonly skill: string
-    readonly resume?: boolean | undefined
-  }["id"]
-  readonly skill: {
-    readonly id?: string | undefined
-    readonly skill: string
-    readonly resume?: boolean | undefined
-  }["skill"]
-  readonly resume?: {
-    readonly id?: string | undefined
-    readonly skill: string
-    readonly resume?: boolean | undefined
-  }["resume"]
+  readonly id: { readonly id: string; readonly resume?: boolean | undefined }["id"]
+  readonly resume?: { readonly id: string; readonly resume?: boolean | undefined }["resume"]
 }
 
 export type SessionSkillOutput = void
@@ -4384,7 +4378,7 @@ export type SessionLogOutput = SessionLogItem
 
 export type SessionInterruptInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
-  readonly continue?: { readonly continue?: boolean | undefined }["continue"]
+  readonly resume?: { readonly resume?: boolean | undefined }["resume"]
 }
 
 export type SessionInterruptOutput = SessionInterruptResponse
@@ -4393,12 +4387,12 @@ export type SessionBackgroundInput = { readonly sessionID: { readonly sessionID:
 
 export type SessionBackgroundOutput = void
 
-export type SessionMessageInput = {
+export type SessionMessageGetInput = {
   readonly sessionID: { readonly sessionID: string; readonly messageID: string }["sessionID"]
   readonly messageID: { readonly sessionID: string; readonly messageID: string }["messageID"]
 }
 
-export type SessionMessageOutput = { data: SessionMessageInfo }["data"]
+export type SessionMessageGetOutput = { data: SessionMessageInfo }["data"]
 
 export type SessionEnvironmentInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
@@ -6068,44 +6062,41 @@ export type ReferenceListInput = {
 
 export type ReferenceListOutput = { location: LocationPublicRef; data: Array<ReferenceInfo> }
 
-export type WorktreeListInput = {
-  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
-}
+export type WorktreeListInput = { readonly projectID: { readonly projectID: string }["projectID"] }
 
 export type WorktreeListOutput = WorktreeList
 
 export type WorktreeCreateInput = {
-  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
-  readonly strategy?: {
-    readonly strategy?: string
+  readonly projectID: {
+    readonly projectID: string
     readonly from?: string
     readonly branch?: string
     readonly directory?: string
     readonly name?: string
-  }["strategy"]
+  }["projectID"]
   readonly from?: {
-    readonly strategy?: string
+    readonly projectID: string
     readonly from?: string
     readonly branch?: string
     readonly directory?: string
     readonly name?: string
   }["from"]
   readonly branch?: {
-    readonly strategy?: string
+    readonly projectID: string
     readonly from?: string
     readonly branch?: string
     readonly directory?: string
     readonly name?: string
   }["branch"]
   readonly directory?: {
-    readonly strategy?: string
+    readonly projectID: string
     readonly from?: string
     readonly branch?: string
     readonly directory?: string
     readonly name?: string
   }["directory"]
   readonly name?: {
-    readonly strategy?: string
+    readonly projectID: string
     readonly from?: string
     readonly branch?: string
     readonly directory?: string
@@ -6116,16 +6107,14 @@ export type WorktreeCreateInput = {
 export type WorktreeCreateOutput = WorktreeInfo
 
 export type WorktreeRemoveInput = {
-  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
-  readonly directory: { readonly directory: string; readonly force: boolean }["directory"]
-  readonly force: { readonly directory: string; readonly force: boolean }["force"]
+  readonly projectID: { readonly projectID: string; readonly directory: string; readonly force: boolean }["projectID"]
+  readonly directory: { readonly projectID: string; readonly directory: string; readonly force: boolean }["directory"]
+  readonly force: { readonly projectID: string; readonly directory: string; readonly force: boolean }["force"]
 }
 
 export type WorktreeRemoveOutput = void
 
-export type WorktreeRefreshInput = {
-  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
-}
+export type WorktreeRefreshInput = { readonly projectID: { readonly projectID: string }["projectID"] }
 
 export type WorktreeRefreshOutput = void
 

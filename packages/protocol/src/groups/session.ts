@@ -5,7 +5,14 @@ import { Session } from "@opencode/schema/session"
 import { SessionStats } from "@opencode/schema/session-stats"
 import { InstructionEntry } from "@opencode/schema/instruction-entry"
 import { Project } from "@opencode/schema/project"
-import { AbsolutePath, NonNegativeInt, PositiveInt, RelativePath, statics } from "@opencode/schema/schema"
+import {
+  AbsolutePath,
+  DateTimeUtcFromMillis,
+  NonNegativeInt,
+  PositiveInt,
+  RelativePath,
+  statics,
+} from "@opencode/schema/schema"
 import { Event } from "@opencode/schema/event"
 import { Context, Effect, Encoding, Result, Schema, SchemaGetter, Struct } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
@@ -214,7 +221,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       ),
     )
     .add(
-      HttpApiEndpoint.post("session.import", "/api/session/import", {
+      HttpApiEndpoint.post("session.import", "/api/experimental/session/import", {
         payload: Schema.Struct({
           ...PublicSessionTransfer.fields,
           location: Location.PublicRef.pipe(Schema.optional),
@@ -223,7 +230,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         error: [ConflictError, SessionNotFoundError],
       }).annotateMerge(
         OpenApi.annotations({
-          identifier: "session.import",
+          identifier: "experimental.session.import",
           summary: "Import session",
           description:
             "Import a projected session transcript at the requested location. If parentID is supplied, the parent session must already exist; import parents before children.",
@@ -231,14 +238,14 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       ),
     )
     .add(
-      HttpApiEndpoint.get("session.export", "/api/session/:sessionID/export", {
+      HttpApiEndpoint.get("session.export", "/api/experimental/session/:sessionID/export", {
         params: { sessionID: Session.ID },
         query: Schema.Struct({ sanitize: BooleanFromString.pipe(Schema.optional) }),
         success: Schema.Struct({ data: PublicSessionTransfer }),
         error: [SessionNotFoundError, UnknownError],
       }).annotateMerge(
         OpenApi.annotations({
-          identifier: "session.export",
+          identifier: "experimental.session.export",
           summary: "Export session",
           description: "Export a complete projected session transcript.",
         }),
@@ -332,7 +339,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         ),
     )
     .add(
-      HttpApiEndpoint.post("session.rename", "/api/session/:sessionID/rename", {
+      HttpApiEndpoint.patch("session.rename", "/api/session/:sessionID", {
         params: { sessionID: Session.ID },
         payload: Schema.Struct({ title: Schema.String }),
         success: HttpApiSchema.NoContent,
@@ -357,7 +364,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         OpenApi.annotations({
           identifier: "session.move",
           summary: "Move session",
-          description: "Move a session to another project directory, optionally transferring local changes.",
+          description: "Move a session to another project directory at the requested delivery boundary.",
         }),
       ),
     )
@@ -387,7 +394,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       HttpApiEndpoint.post("session.command", "/api/session/:sessionID/command", {
         params: { sessionID: Session.ID },
         payload: Schema.Struct({
-          command: Schema.String,
+          name: Schema.String,
           ...PromptInput.Prompt.fields,
           delivery: SessionInbox.Delivery.pipe(Schema.optional),
         }),
@@ -404,11 +411,10 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         ),
     )
     .add(
-      HttpApiEndpoint.post("session.skill", "/api/session/:sessionID/skill", {
+      HttpApiEndpoint.post("session.skill", "/api/experimental/session/:sessionID/skill", {
         params: { sessionID: Session.ID },
         payload: Schema.Struct({
-          id: SessionMessage.ID.pipe(Schema.optional),
-          skill: Skill.ID,
+          id: Skill.ID,
           resume: Schema.Boolean.pipe(Schema.optional),
         }),
         success: HttpApiSchema.NoContent,
@@ -417,7 +423,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         .middleware(sessionLocationMiddleware)
         .annotateMerge(
           OpenApi.annotations({
-            identifier: "session.skill",
+            identifier: "experimental.session.skill",
             summary: "Activate skill",
             description: "Activate a skill for a session by appending a skill message and resuming execution.",
           }),
@@ -450,7 +456,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       HttpApiEndpoint.post("session.shell", "/api/session/:sessionID/shell", {
         params: { sessionID: Session.ID },
         payload: Schema.Struct({
-          id: Event.ID.pipe(Schema.optional),
+          id: SessionMessage.ID.pipe(Schema.optional),
           command: Schema.String,
         }),
         success: HttpApiSchema.NoContent,
@@ -487,7 +493,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         ),
     )
     .add(
-      HttpApiEndpoint.post("session.wait", "/api/session/:sessionID/wait", {
+      HttpApiEndpoint.post("session.wait", "/api/experimental/session/:sessionID/wait", {
         params: { sessionID: Session.ID },
         success: HttpApiSchema.NoContent,
         error: [SessionNotFoundError, ServiceUnavailableError],
@@ -495,7 +501,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         .middleware(sessionLocationMiddleware)
         .annotateMerge(
           OpenApi.annotations({
-            identifier: "session.wait",
+            identifier: "experimental.session.wait",
             summary: "Wait for session",
             description: "Wait for a session agent loop to become idle.",
           }),
@@ -518,7 +524,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         ),
     )
     .add(
-      HttpApiEndpoint.post("session.revert.clear", "/api/session/:sessionID/revert/clear", {
+      HttpApiEndpoint.delete("session.revert.clear", "/api/session/:sessionID/revert", {
         params: { sessionID: Session.ID },
         success: HttpApiSchema.NoContent,
         error: [SessionNotFoundError, SessionBusyError, UnknownError],
@@ -629,31 +635,39 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
       ),
     )
     .add(
-      HttpApiEndpoint.get("session.instructions.entry.list", "/api/session/:sessionID/instructions/entries", {
-        params: { sessionID: Session.ID },
-        success: Schema.Struct({ data: Schema.Array(InstructionEntry.Info) }),
-        error: SessionNotFoundError,
-      })
+      HttpApiEndpoint.get(
+        "session.instructions.entry.list",
+        "/api/experimental/session/:sessionID/instructions/entries",
+        {
+          params: { sessionID: Session.ID },
+          success: Schema.Struct({ data: Schema.Array(InstructionEntry.Info) }),
+          error: SessionNotFoundError,
+        },
+      )
         .middleware(sessionLocationMiddleware)
         .annotateMerge(
           OpenApi.annotations({
-            identifier: "session.instructions.entry.list",
+            identifier: "experimental.session.instructions.entry.list",
             summary: "List instruction entries",
             description: "List API-managed instruction entries attached to the session.",
           }),
         ),
     )
     .add(
-      HttpApiEndpoint.put("session.instructions.entry.put", "/api/session/:sessionID/instructions/entries/:key", {
-        params: { sessionID: Session.ID, key: InstructionEntry.Key },
-        payload: Schema.Struct({ value: Schema.Json }),
-        success: HttpApiSchema.NoContent,
-        error: [SessionNotFoundError, InstructionEntry.ValueTooLargeError],
-      })
+      HttpApiEndpoint.put(
+        "session.instructions.entry.put",
+        "/api/experimental/session/:sessionID/instructions/entries/:key",
+        {
+          params: { sessionID: Session.ID, key: InstructionEntry.Key },
+          payload: Schema.Struct({ value: Schema.Json }),
+          success: HttpApiSchema.NoContent,
+          error: [SessionNotFoundError, InstructionEntry.ValueTooLargeError],
+        },
+      )
         .middleware(sessionLocationMiddleware)
         .annotateMerge(
           OpenApi.annotations({
-            identifier: "session.instructions.entry.put",
+            identifier: "experimental.session.instructions.entry.put",
             summary: "Put instruction entry",
             description:
               "Attach or replace one durable instruction entry. Changes announce as updates at the next step boundary.",
@@ -661,15 +675,19 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         ),
     )
     .add(
-      HttpApiEndpoint.delete("session.instructions.entry.remove", "/api/session/:sessionID/instructions/entries/:key", {
-        params: { sessionID: Session.ID, key: InstructionEntry.Key },
-        success: HttpApiSchema.NoContent,
-        error: SessionNotFoundError,
-      })
+      HttpApiEndpoint.delete(
+        "session.instructions.entry.remove",
+        "/api/experimental/session/:sessionID/instructions/entries/:key",
+        {
+          params: { sessionID: Session.ID, key: InstructionEntry.Key },
+          success: HttpApiSchema.NoContent,
+          error: SessionNotFoundError,
+        },
+      )
         .middleware(sessionLocationMiddleware)
         .annotateMerge(
           OpenApi.annotations({
-            identifier: "session.instructions.entry.remove",
+            identifier: "experimental.session.instructions.entry.remove",
             summary: "Remove instruction entry",
             description:
               "Remove one instruction entry; the removal is announced to the model at the next step boundary.",
@@ -717,7 +735,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
     .add(
       HttpApiEndpoint.post("session.interrupt", "/api/session/:sessionID/interrupt", {
         params: { sessionID: Session.ID },
-        query: { continue: BooleanFromString.pipe(Schema.optional) },
+        query: { resume: BooleanFromString.pipe(Schema.optional) },
         success: Schema.Struct({
           interrupted: Schema.Boolean.annotate({
             description: "Whether an active execution owned by this OpenCode process was interrupted.",
@@ -731,7 +749,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
             identifier: "session.interrupt",
             summary: "Interrupt session execution",
             description:
-              "Interrupt active execution owned by this OpenCode process. Returns interrupted=true when an active execution was interrupted and false for the idle no-op. When continue=true, execution resumes pending steering input and next-in-line control items (manual compaction, moves) while queued prompts remain parked.",
+              "Interrupt active execution owned by this OpenCode process. Returns interrupted=true when an active execution was interrupted and false for the idle no-op. When resume=true, execution resumes pending steering input and next-in-line control items (manual compaction, moves) while queued prompts remain parked.",
           }),
         ),
     )
@@ -758,21 +776,21 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         error: [SessionNotFoundError, MessageNotFoundError],
       }).annotateMerge(
         OpenApi.annotations({
-          identifier: "session.message",
+          identifier: "session.message.get",
           summary: "Get session message",
           description: "Retrieve one projected message owned by the Session.",
         }),
       ),
     )
     .add(
-      HttpApiEndpoint.put("session.environment", "/api/session/:sessionID/environment", {
+      HttpApiEndpoint.put("session.environment", "/api/experimental/session/:sessionID/environment", {
         params: { sessionID: Session.ID },
         payload: Schema.Struct({ variables: Schema.Record(Schema.String, Schema.String) }),
         success: HttpApiSchema.NoContent,
         error: SessionNotFoundError,
       }).annotateMerge(
         OpenApi.annotations({
-          identifier: "session.environment",
+          identifier: "experimental.session.environment",
           summary: "Set session environment",
           description: "Replace the process environment used by local shell commands for this session.",
         }),
@@ -781,7 +799,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
     .add(
       HttpApiEndpoint.post("session.view", "/api/session/:sessionID/view", {
         params: { sessionID: Session.ID },
-        payload: Schema.Struct({ idle: NonNegativeInt }),
+        payload: Schema.Struct({ idle: DateTimeUtcFromMillis }),
         success: HttpApiSchema.NoContent,
         error: SessionNotFoundError,
       }).annotateMerge(
