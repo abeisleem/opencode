@@ -8,7 +8,6 @@ import {
   Match,
   on,
   onCleanup,
-  onMount,
   Show,
   Switch,
   type Accessor,
@@ -20,7 +19,7 @@ import { useRoute, useRouteData } from "../../context/route"
 import { createStore } from "solid-js/store"
 import { useData } from "../../context/data"
 import { SplitBorder } from "../../ui/border"
-import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
+import { useTuiTerminalEnvironment } from "../../context/runtime"
 import { Spinner, SPINNER_FRAMES } from "../../component/spinner"
 import { PatchDiff } from "../../component/patch-diff"
 import { useTheme, useThemes } from "../../context/theme"
@@ -54,11 +53,11 @@ import { RetryProvider } from "../../component/retry-provider"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useClient } from "../../context/client"
 import { useEditorContext } from "../../context/editor"
-import { openEditor } from "../../editor"
 import { useDialog } from "../../ui/dialog"
 import { DialogSelect } from "../../ui/dialog-select"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { DialogImagePreview } from "../../component/dialog-image-preview"
+import { statusLabel } from "../../component/dialog-workspace-file-changes"
 import { DialogMessage } from "./dialog-message"
 import { DialogFork } from "./dialog-fork"
 import { DialogTimeline } from "./dialog-timeline"
@@ -70,6 +69,7 @@ import { useToast } from "../../ui/toast"
 import stripAnsi from "strip-ansi"
 import { usePromptRef } from "../../context/prompt"
 import { projectedPromptInput } from "../../prompt/codec"
+import { appendPrompt } from "../../prompt/history"
 import { deduplicateVisibleImages } from "../../prompt/attachment"
 import { useEpilogue } from "../../context/epilogue"
 import { normalizePath } from "../../util/path"
@@ -109,7 +109,6 @@ import { useArgs } from "../../context/args"
 import { withTimestampedFallback } from "@opencode/util/session-title-fallback"
 import { useSessionTabs, type ScrollAnchor } from "../../context/session-tabs"
 import { createSingleFlight } from "../../util/single-flight"
-import type { SessionInbox } from "@opencode/schema/session-inbox"
 import { createDelayedPresence } from "../../util/delayed-presence"
 import { SessionLocationMissing } from "./location-missing"
 import { isRecord } from "../../util/record"
@@ -141,6 +140,7 @@ export function Session(props: {
   promptMuted?: boolean
   sidebarVisible: boolean
   onToggleSidebar: () => void
+  terminals?: boolean
   visibleTerminalID?: string
   onTerminalPicker?: (show: (() => void) | undefined) => void
   width?: number
@@ -157,7 +157,6 @@ export function Session(props: {
   const data = useData()
   const local = useLocal()
   const args = useArgs()
-  const paths = useTuiPaths()
   const configState = useConfig()
   const config = configState.data
   const theme = useTheme()
@@ -211,7 +210,9 @@ export function Session(props: {
   )
   const pendingDeliveries = createMemo(() => new Map(pendingUsers().map((item) => [item.id, item.delivery])))
   const queuedPrompts = createMemo(() =>
-    pendingUsers().flatMap((item) => (item.delivery === "queue" ? [{ id: item.id, text: item.payload.text }] : [])),
+    pendingUsers().flatMap((item) =>
+      item.delivery === "queue" ? [{ id: item.id, text: item.payload.text, payload: item.payload }] : [],
+    ),
   )
   const [composer, setComposer] = createStore({
     open: false,
@@ -223,10 +224,6 @@ export function Session(props: {
     if (props.promptMuted && composer.open) setComposer("open", false)
   })
   const disabled = createMemo(() => promptedPermissions().length > 0 || forms().length > 0)
-
-  const lastAssistant = createMemo(() => {
-    return messages().findLast((x) => x.type === "assistant")
-  })
 
   const dimensions = useTerminalDimensions()
   const thinkingMode = createMemo<ThinkingMode>(() => config.session?.thinking ?? "hide")
@@ -608,7 +605,7 @@ export function Session(props: {
   const dialog = useDialog()
   const renderer = useRenderer()
   const runPendingAction = createSingleFlight<string>()
-  const mutatePending = async (action: PendingAction, inboxID: string) => {
+  const mutatePending = async (action: PendingAction, inboxID: string, failureLabel?: string) => {
     const result = await runPendingAction(inboxID, async () => {
       const request =
         action === "steer"
@@ -621,7 +618,7 @@ export function Session(props: {
         (error) => error,
       )
       if (!error) return true
-      const label = action === "cancel" ? "delete" : action
+      const label = failureLabel ?? (action === "cancel" ? "delete" : action)
       toast.show({ title: `Failed to ${label} pending prompt`, message: errorMessage(error), variant: "error" })
       return false
     })
@@ -649,6 +646,26 @@ export function Session(props: {
               const last = queuedPrompts().length === 1
               void mutatePending("cancel", option.value).then((cancelled) => {
                 if (cancelled && last) dialog.clear()
+              })
+            },
+          },
+          {
+            command: "queued_prompt.undo",
+            title: "undo",
+            onTrigger: (option) => {
+              const target = prompt()
+              const queued = queuedPrompts().find((item) => item.id === option.value)
+              if (!target || !queued) return
+              if (target.mode === "shell" && target.current.text) {
+                toast.show({ message: "Leave shell mode before undoing a queued prompt", variant: "error" })
+                return
+              }
+              void mutatePending("cancel", queued.id, "undo").then((undone) => {
+                if (!undone) return
+                target.setMode("normal")
+                target.set(appendPrompt(target.current, { ...projectedPromptInput(queued.payload), pasted: [] }))
+                dialog.clear()
+                target.focus()
               })
             },
           },
@@ -948,14 +965,6 @@ export function Session(props: {
           .catch((error) => toast.show({ message: errorMessage(error), variant: "error" }))
         dialog.clear()
       },
-    },
-    {
-      title: "Unshare session",
-      id: "session.unshare",
-      group: "Session",
-      enabled: false,
-      slash: { name: "unshare" },
-      run: () => unavailable("Unsharing"),
     },
     {
       title: "Undo previous message",
@@ -1449,6 +1458,7 @@ export function Session(props: {
                   }
                   setComposer("open", false)
                 }}
+                terminals={props.terminals}
                 visibleTerminalID={props.visibleTerminalID}
               />
               <Switch>
@@ -2071,12 +2081,6 @@ function CompactionQueued() {
   )
 }
 
-function statusLabel(status: "added" | "modified" | "deleted") {
-  if (status === "added") return "A"
-  if (status === "deleted") return "D"
-  return "M"
-}
-
 function RevertMessage(props: {
   count: number
   files: ReadonlyArray<{
@@ -2595,11 +2599,9 @@ function useToolPermission(part: () => SessionMessageAssistantTool | undefined) 
 
 function InlineTool(props: {
   icon: string
-  iconColor?: RGBA
   color?: RGBA
   complete: unknown
   pending: string
-  failure?: string
   spinner?: boolean
   running?: boolean
   status?: JSX.Element
@@ -2639,7 +2641,6 @@ function InlineTool(props: {
   return (
     <InlineToolRow
       icon={props.icon}
-      iconColor={props.iconColor}
       color={fg()}
       errorColor={theme.text.feedback.error.base}
       failed={failed()}
@@ -2648,7 +2649,6 @@ function InlineTool(props: {
       errorExpanded={errorExpanded()}
       complete={props.complete}
       pending={props.pending}
-      failure={props.failure}
       spinner={props.spinner}
       status={props.status}
       onMouseOver={() => clickable() && setHover(true)}
@@ -2785,7 +2785,7 @@ function Shell(props: ToolProps) {
       command={stringValue(props.input.command)}
       workdir={stringValue(props.input.workdir)}
       status={props.part.state.status}
-      background={Boolean(stringValue(props.metadata.shellID)) && props.part.state.status !== "running"}
+      background={props.part.state.status === "completed" && props.metadata.status === "running"}
       output={stringValue(props.metadata.shellID) ? undefined : props.output}
     />
   )
@@ -3020,6 +3020,10 @@ function Read(props: ToolProps) {
         part={props.part}
       >
         Read {pathFormatter.format(stringValue(props.input.path))}
+        <Show when={props.input.offset !== undefined || props.input.limit !== undefined}>
+          :{finiteNumber(props.input.offset) || 1}-
+          {props.input.limit ? (finiteNumber(props.input.offset) || 1) + (finiteNumber(props.input.limit) || 0) - 1 : ""}
+        </Show>
       </InlineTool>
       <For each={loaded()}>
         {(filepath) => (

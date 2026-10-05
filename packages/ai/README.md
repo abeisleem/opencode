@@ -27,6 +27,31 @@ Run `LLM.stream(...)` instead of `generate` when you want incremental `LLMEvent`
 `LLM.request(...)`. The event stream is provider-neutral — same shape across OpenAI Chat, OpenAI Responses,
 Anthropic Messages, Gemini, Bedrock Converse, and any OpenAI-compatible deployment.
 
+### Google Interactions
+
+`Google.configure({ apiKey }).interactions(modelID)` selects the Interactions API; `.model(modelID)` still selects
+GenerateContent. The package entrypoint is `@opencode/ai/providers/google/interactions`.
+
+```ts
+const model = Google.configure({ apiKey }).interactions("gemini-3.8-flash")
+const response = yield* LLM.generate({
+  model,
+  prompt: "Say hello.",
+  providerOptions: { thinkingLevel: "low", thinkingSummaries: "auto", store: true },
+})
+```
+
+Interactions supports text output, streamed function calls, native tool results, thought signatures, and multimodal
+input. Full-history replay is the default (`store: false`); implicit caching works without retained interactions.
+For server-side continuation, set `store: true` on the predecessor, read `interactionId` from the final event's
+`providerMetadata.google`, and pass `previousInteractionId` on the next request with **only new messages**. Repeat
+the system instructions and tool declarations on each request. Set `store: true` on each response you intend to
+continue from. The package does not automatically select or persist continuation IDs.
+
+Raw usage is preserved in `usage.providerMetadata.google`. `inputTokens` follows Google's top-level accounting;
+`contextTokens` uses its full `raw_prompt_token` count when supplied. These can differ substantially with server-side
+continuation. Explicit caches, hosted tools, and generated media are not supported by this initial protocol.
+
 The same configured facade names image, video, speech, and transcription models. `Image.generate` resolves the
 provider's image route from the model and returns `Media.Asset`s with lazily decoded bytes:
 
@@ -81,6 +106,41 @@ for await (const event of ai.llm.stream(ai.llm.request(input))) {
 await ai.dispose()
 ```
 
+## Venice AI
+
+`Venice` provides native Chat Completions with streaming tools and reasoning. `model` and `chat`
+select the same API; credentials default to `VENICE_API_KEY`.
+
+```ts
+import { LLM } from "@opencode/ai"
+import { Venice } from "@opencode/ai/providers"
+import { Effect } from "effect"
+
+const program = Effect.gen(function* () {
+  const response = yield* LLM.generate({
+    model: Venice.configure({ apiKey: process.env.VENICE_API_KEY }).chat("qwen3-6-27b"),
+    prompt: "Explain this design.",
+    providerOptions: {
+      reasoningEffort: "high",
+      veniceParameters: { includeVeniceSystemPrompt: false },
+    },
+  })
+  console.log(response.text)
+})
+```
+
+Effort lowers to `reasoning.effort`; `reasoning.enabled` and `reasoning.summary` are also available.
+Supported effort levels and toggles depend on the selected model. Omitted controls preserve its defaults.
+Venice's added system prompt is disabled by default, matching the previous OpenCode Venice SDK behavior.
+
+Replay complete `response.message` values to retain signed/encrypted reasoning and Gemini thought
+signatures, including per-tool signatures. Venice's encrypted scalar trailers are excluded from visible
+reasoning but retained in provider metadata for replay. Cache affinity uses `promptCacheKey`, and cache-write
+usage reads Venice's `cache_creation_input_tokens` field.
+
+The native package entrypoint is `@opencode/ai/providers/venice`. Image generation, embeddings, Responses, and
+client-side E2EE are not implemented by this provider.
+
 ## Experimental evaluation
 
 Evaluation models compare shared state with typed choice, score, and boolean questions. The API is
@@ -129,8 +189,9 @@ VercelAIGateway.configure().experimental.evaluation("typesafe-ai/jev")
 
 OpenRouter reads `OPENROUTER_API_KEY`. Vercel reads `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN`.
 The common API uses `boolean`; System One routes lower it to native `noul`.
-Choice and score confidence plus score legends remain available in provider metadata, and the
-provider's rounded probabilities are returned unchanged.
+Choice and score answers include `confidence` when the provider returns it, such as
+`response.answers.department.confidence`. Score legends remain available in provider metadata, and
+the provider's rounded probabilities are returned unchanged.
 
 ## Alibaba Cloud Model Studio
 
@@ -475,18 +536,18 @@ const program = Effect.gen(function* () {
 Common fields are portable in shape, not in support. Unsupported fields fail with a typed `AIError` before any network
 call rather than being dropped, so check this table before swapping only the `model`:
 
-| Provider              | `n` | `size`    | `aspectRatio` | `seed` | `format` | `images`                  | `mask`              |
-| --------------------- | --- | --------- | ------------- | ------ | -------- | ------------------------- | ------------------- |
-| OpenAI                | ✓¹  | ✓         | ✗             | ✗      | ✓        | ✓                         | ✓                   |
-| Google (Gemini)       | 1   | ✗         | ✓             | ✓      | ✗        | ✓ (no public URLs)        | ✗                   |
-| xAI                   | ✓   | ✗         | ✓             | ✗      | ✗        | ✓                         | ✗                   |
-| Z.ai                  | ✗   | ✓         | ✗             | ✗      | ✗        | ✗                         | ✗                   |
-| Meta                  | ✓   | ✓ (hint)  | ✗             | ✗      | ✓        | ✓                         | ✗                   |
-| Black Forest Labs     | 1   | per model | per model     | ✓      | ✓        | per model (1–8)           | `flux-pro-1.0-fill` |
-| fal                   | ✓   | per model | per model     | ✓      | ✓        | 1 (several on `/edit`)    | ✓                   |
-| Replicate             | ✗   | ✗         | ✗             | ✗      | ✗        | ✗ (use `providerOptions`) | ✗                   |
-| Stability `image`     | 1   | ✗         | ✓             | ✓      | ✓        | 1 (not on `core`)         | ✗                   |
-| Stability `upscale()` | ✗   | ✗         | ✗             | ✓      | ✓        | exactly 1 (required)      | ✗                   |
+| Provider              | `n` | `size`    | `aspectRatio` | `seed` | `format` | `images`                         | `mask`              |
+| --------------------- | --- | --------- | ------------- | ------ | -------- | -------------------------------- | ------------------- |
+| OpenAI                | ✓¹  | ✓         | ✗             | ✗      | ✓        | ✓                                | ✓                   |
+| Google (Gemini)       | 1   | ✗         | ✓             | ✓      | ✗        | ✓ (no public URLs)               | ✗                   |
+| xAI                   | ✓   | ✗         | ✓             | ✗      | ✗        | ✓                                | ✗                   |
+| Z.ai                  | ✗   | ✓         | ✗             | ✗      | ✗        | ✗                                | ✗                   |
+| Meta                  | ✓   | ✓ (hint)  | ✗             | ✗      | ✓        | ✓                                | ✗                   |
+| Black Forest Labs     | 1   | per model | per model     | ✓      | ✓        | per model (1–8)                  | `flux-pro-1.0-fill` |
+| fal                   | ✓   | per model | per model     | ✓      | ✓        | 1 (several on `/edit`, `/multi`) | ✓                   |
+| Replicate             | ✗   | ✗         | ✗             | ✗      | ✗        | ✗ (use `providerOptions`)        | ✗                   |
+| Stability `image`     | 1   | ✗         | ✓             | ✓      | ✓        | 1 (not on `core`)                | ✗                   |
+| Stability `upscale()` | ✗   | ✗         | ✗             | ✓      | ✓        | exactly 1 (required)             | ✗                   |
 
 ✓ lowers natively; ✗ fails whenever the field is set (including `n: 1`); `1` means `n > 1` fails. ¹ `Image.stream` on OpenAI generates one image. fal
 rejects `size` and `aspectRatio` together; which one a fal or BFL model takes depends on the model.
@@ -621,8 +682,7 @@ persist the bytes promptly if they must remain available.
 ### Partial images
 
 OpenAI's GPT image models stream previews. `Image.stream` sends `stream: true` with `partialImages` (0–3, default 2)
-and emits `image-partial` events before each final `image`; `Image.generate` keeps the plain JSON request.
-`dall-e-*` models do not stream and fail typed:
+and emits `image-partial` events before each final `image`; `Image.generate` keeps the plain JSON request:
 
 ```ts
 import { Stream } from "effect"
@@ -699,7 +759,7 @@ const program = Effect.gen(function* () {
 })
 ```
 
-The hosted result is represented as a provider-executed tool call and tool result, and the generated image is also emitted as a first-class `media` `LLMEvent` (`response.message` then carries a `media` part). Gemini image-capable models emit the same `media` event for inline image output. Retaining `response.message` preserves the generated image for continuation on both routes.
+The hosted result is represented as a provider-executed tool call and a tool result whose content carries the generated image as a file. Gemini image-capable models instead emit a first-class `media` `LLMEvent` for inline image output (`response.message` then carries a `media` part). Retaining `response.message` preserves the generated image for continuation on both routes.
 
 ## Video generation
 
@@ -753,7 +813,10 @@ const events = Video.stream({ model: Runway.configure({ apiKey }).video("gen4.5"
 
 Status polls, result fetches, cancels, and asset downloads all run through the same request executor with the route's
 auth. `Generation.await` and `Generation.events` fail with a
-`Timeout` reason when `poll.timeout` (default 10 minutes) elapses. Failed,
+`Timeout` reason when `poll.timeout` (default 10 minutes) elapses. Status polls and result fetches retry transient
+failures (rate limits, provider 5xx, network errors) with backoff that honors `retry-after`, always within
+`poll.timeout`; submits and cancels never retry. Interrupting a wait (or aborting its `signal`) does not cancel the
+provider job, which keeps running and billing: call `cancel()` to stop it. Failed,
 cancelled, and expired generations fail typed with the provider's terminal document on `reason.body`; moderation
 outcomes (Veo `raiMediaFilteredReasons`, xAI `respect_moderation`, Runway `SAFETY.*` codes) surface as `notices` when
 a video is still returned and as a `ContentPolicy` reason when nothing is.
@@ -774,7 +837,9 @@ Provider notes:
 The promise client exposes the same surface: `ai.video.start(...)` resolves to a handle with `await`, `events`,
 `result`, `refresh`, `cancel`, and `token`; `ai.video.generate`, `ai.video.resume(model, token)`, and
 `ai.video.stream` mirror the Effect API. The handle's `status` and `progress` are a snapshot from when it was
-created; `refresh()` resolves to a new handle.
+created; `refresh()` resolves to a new handle. Every promise method and stream accepts `{ signal }`: like `fetch`,
+aborting rejects the Promise or throws from the `for await` loop with `signal.reason` (an `AbortError` `DOMException`
+unless `abort(reason)` passed one), while `break` stops a stream without throwing.
 
 ```ts
 import { ai } from "@opencode/ai/promise"
@@ -840,9 +905,10 @@ Provider notes:
 - **OpenAI** streams over SSE (`stream_format: "sse"`), which is also the only place it reports token usage; `tts-1`
   and `tts-1-hd` do not support SSE and stream the raw audio body instead. `pcm` is 24 kHz 16-bit mono. `language`
   and `timestamps` are not supported.
-- **Gemini TTS** returns raw 16-bit PCM only (`audio/L16;codec=pcm;rate=24000`), so any `format` other than `pcm`
-  fails typed; wrap the samples yourself. Style is directed in the text, so `instructions` and `speed` fail typed.
-  Only `gemini-3.1-flash-tts-preview` and later support streaming. Two-speaker audio goes through
+- **Gemini TTS** returns the provider's default output: WAV for Gemini 3.8 TTS `generate`, raw 16-bit PCM
+  (`audio/L16;codec=pcm;rate=24000`) otherwise. `pcm` is the only explicit `format` it accepts, and it fails typed on
+  Gemini 3.8 `generate`; the route never wraps PCM as WAV. Style is directed in the text, so `instructions` and
+  `speed` fail typed. Only `gemini-3.1-flash-tts-preview` and later support streaming. Two-speaker audio goes through
   `providerOptions.speechConfig.multiSpeakerVoiceConfig`.
 - **ElevenLabs** requires `voice` (the path voice id) and authenticates with `xi-api-key`. `format` maps to the
   `output_format` query parameter (`mp3_44100_128`, `pcm_24000`, `wav_24000`, `opus_48000_64`);
@@ -871,11 +937,12 @@ for await (const event of ai.speech.stream({ model, text: "Hello from OpenCode."
 ## Transcription
 
 Transcription (speech-to-text) is the one modality whose providers use every route kind: OpenAI and Gemini stream,
-Deepgram answers inline, and AssemblyAI is queued. `Transcription.generate` and `Transcription.stream` work on all of
-them; `Transcription.start` / `resume` return a `Generation` on queued routes and fail with `UnsupportedOperation`
-elsewhere. Models come from `.transcription(...)` selectors on the `OpenAI`, `Google`, `Deepgram`, and `AssemblyAI`
-facades. Common fields (`language`, `prompt`, `timestamps: "none" | "segment" | "word"`, `diarize`, `speakers`) lower
-natively or fail with a typed `AIError` before any network call; a route may return more than asked.
+Deepgram and ElevenLabs answer inline, and AssemblyAI is queued. `Transcription.generate` and `Transcription.stream`
+work on all of them; `Transcription.start` / `resume` return a `Generation` on queued routes and fail with
+`UnsupportedOperation` elsewhere. Models come from `.transcription(...)` selectors on the `OpenAI`, `Google`,
+`Deepgram`, `ElevenLabs`, and `AssemblyAI` facades. Common fields (`language`, `prompt`,
+`timestamps: "none" | "segment" | "word"`, `diarize`, `speakers`) lower natively or fail with a typed `AIError` before
+any network call; a route may return more than asked.
 
 ```ts
 import { Console, Effect, Stream } from "effect"
@@ -887,7 +954,7 @@ const openai = OpenAI.configure({ apiKey: process.env.OPENAI_API_KEY })
 const program = Effect.gen(function* () {
   const audio = yield* Media.file("./call.mp3")
 
-  // Speaker-labelled segments; labels are provider-native strings ("A", "0", "spk:0").
+  // Speaker-labelled segments; labels are provider-native strings ("A", "0", "spk:0", "speaker_0").
   const response = yield* Transcription.generate({
     model: Deepgram.configure({ apiKey }).transcription("nova-3"),
     audio,
@@ -897,7 +964,7 @@ const program = Effect.gen(function* () {
   response.text // "Hello from OpenCode."
   response.segments // [{ text, startSeconds, endSeconds, speaker: "0" }]
   response.words // [{ text, startSeconds, endSeconds, speaker, confidence }]
-  response.language // the provider's own value, lowercased ("en", "english", "en_us")
+  response.language // the provider's own value, lowercased ("en", "eng", "english", "en_us")
 
   // Text deltas as the model transcribes, then one finish carrying the whole transcript.
   yield* Transcription.stream({ model: openai.transcription("gpt-4o-mini-transcribe"), audio }).pipe(
@@ -921,7 +988,12 @@ Provider notes:
 - **OpenAI** takes inline audio only; `diarize` needs `gpt-4o-transcribe-diarize`, timestamps need `whisper-1`, and `whisper-1` does not stream.
 - **Gemini** needs a transcribe model (`gemini-3.5-transcribe`); `prompt` and `speakers` fail typed.
 - **Deepgram** detects the language unless `language` is set; vocabulary goes in `providerOptions.keyterm`.
-- **AssemblyAI** uploads inline audio before submitting and is the only route that accepts `speakers`.
+- **ElevenLabs** (`scribe_v2`) uploads inline audio as the multipart `file` and sends a URL as `source_url`. Words
+  always carry timestamps, and segments are speaker turns, so `diarize`, `timestamps: "segment"`, or `speakers` turns
+  on diarization. `speakers` is an upper bound (`num_speakers`); `prompt` fails typed (vocabulary goes in
+  `providerOptions.keyterms`), as do webhook delivery and per-channel output (`use_multi_channel` without
+  `multichannel_output_style: "combined"`).
+- **AssemblyAI** uploads inline audio before submitting and treats `speakers` as the exact speaker count.
 
 The promise client mirrors the Effect API:
 
@@ -944,6 +1016,7 @@ const transcript = await generation.await({ poll: { interval: 3_000 } })
 - **`ImageClient`** — Effect service and layer for image execution, parallel to `LLMClient`.
 - **`Media`** — the shared asset type (`Media.Asset`, `Media.Source`) and constructors used by messages, tool results, and media requests.
 - **`Generation`** — provider-neutral handle for an in-flight media generation (`await`, `refresh`, `cancel`, `events`) used by queued media routes.
+- **`Video.request` / `generate` / `stream` / `start` / `resume`** — queued video generation through a provider-neutral request; `VideoClient` is its Effect service and layer.
 - **`Speech.request` / `Speech.generate` / `Speech.stream`** — text-to-speech through a provider-neutral request; `SpeechClient` is its Effect service and layer.
 - **`Transcription.request` / `generate` / `stream` / `start` / `resume`** — speech-to-text over inline, streaming, and queued routes; `TranscriptionClient` is its Effect service and layer.
 - **`AIClient.layer` / `AIClient.layerWith(executor)`** — every modality client plus the request executor in one layer.
@@ -1210,7 +1283,7 @@ const gateway = CloudflareAIGateway.configure({
 }).model("workers-ai/@cf/meta/llama-3.1-8b-instruct")
 ```
 
-Included LLM providers: OpenAI, Anthropic, Google (Gemini), Google Vertex, Amazon Bedrock, Azure OpenAI, Baseten, Cerebras, Cloudflare AI Gateway, Cloudflare Workers AI, DeepInfra, DeepSeek, Fireworks, Groq, Mistral, OpenRouter, TogetherAI, and xAI. Z.ai currently exposes image generation. Generic Chat Completions, Responses, and Anthropic Messages-compatible entrypoints support custom endpoints.
+Included LLM providers: OpenAI, Anthropic, Google (Gemini), Google Vertex, Amazon Bedrock, Azure OpenAI, Baseten, Cerebras, Cohere, Cloudflare AI Gateway, Cloudflare Workers AI, DeepInfra, DeepSeek, Fireworks, Groq, Mistral, OpenRouter, TogetherAI, and xAI. Z.ai currently exposes image generation. Generic Chat Completions, Responses, and Anthropic Messages-compatible entrypoints support custom endpoints.
 
 Each named provider owns its module, endpoint, authentication, and route setup. Providers with the same wire format compose the shared protocol directly:
 
